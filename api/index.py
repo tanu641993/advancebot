@@ -341,54 +341,78 @@ def process_document(file_path: str, ext: str):
     try:
         # STEP 1: Load document based on file type
         if ext == ".csv":
-            docs = CSVLoader(file_path=file_path).load()  # Parse CSV
+            docs = CSVLoader(file_path=file_path).load()
         elif ext == ".pdf":
-            docs = PyPDFLoader(file_path=file_path).load()  # Parse PDF
+            try:
+                docs = PyPDFLoader(file_path=file_path).load()
+            except Exception as e:
+                # If PDF is encrypted, try with empty password
+                if "decrypted" in str(e).lower():
+                    logger.warning("PDF is encrypted – trying with empty password.")
+                    try:
+                        docs = PyPDFLoader(file_path=file_path, password="").load()
+                    except Exception as inner_e:
+                        raise HTTPException(status_code=400, detail=f"PDF encrypted and could not be decrypted: {str(inner_e)}")
+                else:
+                    raise
         elif ext in (".xlsx", ".xls"):
-            # Load Excel with pandas
             excel_docs = load_excel_file(file_path)
-            docs = [type('obj', (object,), {'page_content': doc['page_content'], 
-                                            'metadata': doc['metadata']}) for doc in excel_docs]
+            # Convert to document objects with page_content and metadata
+            docs = []
+            for item in excel_docs:
+                class TempDoc:
+                    def __init__(self, content, meta):
+                        self.page_content = content
+                        self.metadata = meta
+                docs.append(TempDoc(item['page_content'], item['metadata']))
         else:
             raise HTTPException(status_code=400, detail="Unsupported format")
 
-        # STEP 2: Check if content was extracted
         if not docs:
             raise HTTPException(status_code=400, detail="No content extracted from file")
 
-        # STEP 3: Clean text in all documents (normalize whitespace, remove control chars)
+        # STEP 2: Clean text in all documents
         for doc in docs:
             doc.page_content = clean_text(doc.page_content)
 
-        # STEP 4: Split documents into semantically coherent chunks with overlap
+        # STEP 3: Split into chunks
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP
         )
-        chunks = text_splitter.split_documents(docs)  # Break into semantic pieces
+        chunks = text_splitter.split_documents(docs)
         logger.info(f"Split into {len(chunks)} chunks")
 
-        # STEP 5: Deduplicate near-identical chunks
+        # STEP 4: Deduplicate
         chunks = deduplicate_chunks(chunks)
         logger.info(f"After deduplication: {len(chunks)} unique chunks")
-        
-        # STEP 6: Filter out very short chunks (likely noise)
+
+        # STEP 5: Filter short chunks (likely noise)
         chunks = [c for c in chunks if len(c.page_content.strip()) > 50]
         logger.info(f"After filtering short chunks: {len(chunks)} chunks")
 
-        # STEP 7: Store all chunks and metadata in memory for summary operations
+        # STEP 6: If no chunks remain, raise an error
+        if not chunks:
+            raise HTTPException(
+                status_code=400,
+                detail="No valid chunks extracted. Document may be empty, scanned (image-only), or the text could not be extracted. Try a different file."
+            )
+
+        # STEP 7: Store chunks and metadata
         GLOBAL_STATE["all_chunks"] = [chunk.page_content for chunk in chunks]
         GLOBAL_STATE["chunk_metadata"] = [getattr(chunk, 'metadata', {}) for chunk in chunks]
 
         # STEP 8: Create embeddings and build vector database
         embeddings = GeminiEmbeddings(model="gemini-embedding-2")
-        vectorstore = FAISS.from_documents(chunks, embeddings)  # Index in FAISS
-        # Create retriever that finds top-K similar chunks (will re-rank later)
+        vectorstore = FAISS.from_documents(chunks, embeddings)
         GLOBAL_STATE["retriever"] = vectorstore.as_retriever(search_kwargs={"k": TOP_K})
-        
-        # STEP 9: Store metadata about this document
+
+        # STEP 9: Store file metadata
         GLOBAL_STATE["file_hash"] = compute_hash(open(file_path, "rb").read())
         GLOBAL_STATE["filename"] = Path(file_path).name
         logger.info(f"Indexed {GLOBAL_STATE['filename']} successfully")
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("process_document failed")
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
