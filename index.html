@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gemini RAG Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0b0e14 0%, #1a2634 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 0;
+            margin: 0;
+        }
+
+        .chat-container {
+            width: 100%;
+            height: 100vh;
+            background: #151e2a;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+        }
+
+        /* Header */
+        .header {
+            padding: 20px 24px;
+            background: #1a2634;
+            border-bottom: 1px solid #2a3a4e;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-left .icon {
+            font-size: 24px;
+        }
+
+        .header-left h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #e8edf5;
+            letter-spacing: -0.3px;
+        }
+
+        .header-left .badge {
+            background: #2b4a6e;
+            color: #9bc9ff;
+            font-size: 11px;
+            padding: 2px 10px;
+            border-radius: 30px;
+            font-weight: 500;
+            margin-left: 8px;
+        }
+
+        .file-status {
+            font-size: 13px;
+            color: #9bb4d0;
+            background: #1f2d3d;
+            padding: 4px 14px;
+            border-radius: 20px;
+            border: 1px solid #2a3a4e;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .file-status .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .dot.indexed { background: #4caf84; }
+        .dot.none { background: #f87171; }
+
+        /* Upload area */
+        .upload-area {
+            padding: 16px 24px;
+            background: #111b26;
+            border-bottom: 1px solid #1f2d3d;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .upload-area label {
+            background: #2b4a6e;
+            color: white;
+            padding: 8px 18px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .upload-area label:hover {
+            background: #3b5f8a;
+        }
+
+        .upload-area input[type="file"] {
+            display: none;
+        }
+
+        .upload-area .file-name {
+            color: #b0c8e0;
+            font-size: 14px;
+            flex: 1;
+            min-width: 120px;
+        }
+
+        .upload-area .reset-btn {
+            background: transparent;
+            border: 1px solid #4a5f78;
+            color: #b0c8e0;
+            padding: 6px 16px;
+            border-radius: 30px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .upload-area .reset-btn:hover {
+            background: #3d2c2c;
+            border-color: #f87171;
+            color: #f87171;
+        }
+
+        /* Chat messages */
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background: #0f1722;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 5px;
+        }
+        .chat-messages::-webkit-scrollbar-track {
+            background: #1a2634;
+        }
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: #2b4a6e;
+            border-radius: 8px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 12px 18px;
+            border-radius: 18px;
+            font-size: 15px;
+            line-height: 1.5;
+            word-wrap: break-word;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .message.user {
+            background: #2b4a6e;
+            color: #e8edf5;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.bot {
+            background: #1e2c3e;
+            color: #d4e2f0;
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+            border: 1px solid #2a3a4e;
+        }
+
+        .message .sources {
+            font-size: 12px;
+            color: #8aa4c0;
+            margin-top: 8px;
+            border-top: 1px solid #2a3a4e;
+            padding-top: 8px;
+            display: none;
+        }
+        .message.bot .sources {
+            display: block;
+        }
+
+        .typing-indicator {
+            align-self: flex-start;
+            background: #1e2c3e;
+            padding: 12px 20px;
+            border-radius: 18px;
+            border-bottom-left-radius: 4px;
+            border: 1px solid #2a3a4e;
+            color: #8aa4c0;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .typing-indicator span {
+            animation: pulse 1.4s infinite;
+        }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes pulse {
+            0%, 60%, 100% { opacity: 0.3; transform: scale(0.9); }
+            30% { opacity: 1; transform: scale(1.2); }
+        }
+
+        /* Input area */
+        .input-area {
+            padding: 16px 24px;
+            background: #111b26;
+            border-top: 1px solid #1f2d3d;
+            display: flex;
+            gap: 12px;
+            flex-shrink: 0;
+        }
+
+        .input-area input {
+            flex: 1;
+            padding: 12px 18px;
+            border-radius: 30px;
+            border: 1px solid #2a3a4e;
+            background: #0f1722;
+            color: #e8edf5;
+            font-size: 15px;
+            outline: none;
+            transition: border 0.2s;
+        }
+
+        .input-area input::placeholder {
+            color: #5a7290;
+        }
+
+        .input-area input:focus {
+            border-color: #4a8bc2;
+            box-shadow: 0 0 0 3px rgba(74, 139, 194, 0.2);
+        }
+
+        .input-area button {
+            background: #2b4a6e;
+            color: white;
+            border: none;
+            padding: 0 24px;
+            border-radius: 30px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        .input-area button:hover {
+            background: #3b5f8a;
+        }
+
+        .input-area button:active {
+            transform: scale(0.96);
+        }
+
+        .input-area button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .header { flex-wrap: wrap; gap: 8px; }
+            .file-status { font-size: 12px; padding: 2px 10px; }
+            .upload-area { flex-direction: column; align-items: stretch; }
+            .message { max-width: 90%; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="chat-container">
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <span class="icon">🧠</span>
+            <h1>Gemini RAG</h1>
+            <span class="badge">v1.0</span>
+        </div>
+        <div class="file-status" id="fileStatus">
+            <span class="dot none" id="statusDot"></span>
+            <span id="fileNameDisplay">No document</span>
+        </div>
+    </div>
+
+    <!-- Upload & Controls -->
+    <div class="upload-area">
+        <label for="fileInput">📎 Upload CSV / PDF / Excel</label>
+        <input type="file" id="fileInput" accept=".csv,.pdf,.xlsx,.xls" />
+        <span class="file-name" id="uploadedFileName">No file selected</span>
+        <button class="reset-btn" id="summaryBtn">📄 Summary</button>
+        <button class="reset-btn" id="dashboardBtn">📊 Dashboard</button>
+        <button class="reset-btn" id="resetBtn">♻️ Reset</button>
+    </div>
+
+    <!-- Chat Messages -->
+    <div class="chat-messages" id="chatMessages">
+        <div class="message bot">
+            👋 Hello! Upload a CSV or PDF, then ask me questions about your data.
+        </div>
+    </div>
+
+    <!-- Typing Indicator (hidden by default) -->
+    <div class="typing-indicator" id="typingIndicator" style="display: none; margin: 0 24px 8px;">
+        <span>●</span><span>●</span><span>●</span>
+    </div>
+
+    <!-- Input Area -->
+    <div class="input-area">
+        <input type="text" id="queryInput" placeholder="Ask a question..." />
+        <button id="sendBtn">Send</button>
+    </div>
+</div>
+
+<script>
+    (function() {
+        // DOM refs
+        const fileInput = document.getElementById('fileInput');
+        const uploadedFileName = document.getElementById('uploadedFileName');
+        const fileNameDisplay = document.getElementById('fileNameDisplay');
+        const statusDot = document.getElementById('statusDot');
+        const chatMessages = document.getElementById('chatMessages');
+        const queryInput = document.getElementById('queryInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const typingIndicator = document.getElementById('typingIndicator');
+
+        // --- Helpers ---
+        function updateFileStatus(name) {
+            if (name && name !== 'No document') {
+                fileNameDisplay.textContent = name;
+                statusDot.className = 'dot indexed';
+            } else {
+                fileNameDisplay.textContent = 'No document';
+                statusDot.className = 'dot none';
+            }
+        }
+
+        function addMessage(text, sender) {
+            const div = document.createElement('div');
+            div.className = `message ${sender}`;
+            div.textContent = text;
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function addBotMessageWithSources(answer, sources) {
+            const div = document.createElement('div');
+            div.className = 'message bot';
+            div.innerHTML = `<div>${answer}</div>`;
+            if (sources && sources.length) {
+                const srcDiv = document.createElement('div');
+                srcDiv.className = 'sources';
+                srcDiv.style.display = 'block';
+                srcDiv.innerHTML = '📄 Sources: ' + sources.map(s => `<span style="background:#2a3a4e;padding:2px 8px;border-radius:12px;margin:2px;display:inline-block;">${s}</span>`).join(' ');
+                div.appendChild(srcDiv);
+            }
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function showTyping(show) {
+            typingIndicator.style.display = show ? 'flex' : 'none';
+            if (show) {
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+        }
+
+        function setSendEnabled(enabled) {
+            sendBtn.disabled = !enabled;
+            queryInput.disabled = !enabled;
+        }
+
+        // --- File Upload ---
+        fileInput.addEventListener('change', async function() {
+            if (!this.files.length) return;
+            const file = this.files[0];
+            uploadedFileName.textContent = file.name;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const resp = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    updateFileStatus(file.name);
+                    addMessage(`✅ File "${file.name}" uploaded and indexing started.`, 'bot');
+                    // Force status update after processing (poll or rely on backend)
+                    // We'll keep the UI optimistic; if indexing fails, user will see error on query.
+                } else {
+                    throw new Error(data.detail || 'Upload failed');
+                }
+            } catch (err) {
+                addMessage(`❌ Upload error: ${err.message}`, 'bot');
+            }
+            // Clear the input so same file can be re-uploaded
+            fileInput.value = '';
+        });
+
+        // --- Query ---
+        async function sendQuery() {
+            const text = queryInput.value.trim();
+            if (!text) return;
+            queryInput.value = '';
+            addMessage(text, 'user');
+            setSendEnabled(false);
+            showTyping(true);
+
+            try {
+                const resp = await fetch('/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question: text, chat_history: [] })
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    addBotMessageWithSources(data.answer, data.source_chunks || []);
+                    // Update file status in case it changed
+                    updateFileStatus(fileNameDisplay.textContent);
+                } else {
+                    throw new Error(data.detail || 'Query failed');
+                }
+            } catch (err) {
+                addMessage(`❌ Error: ${err.message}`, 'bot');
+            } finally {
+                showTyping(false);
+                setSendEnabled(true);
+            }
+        }
+
+        sendBtn.addEventListener('click', sendQuery);
+        queryInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') sendQuery();
+        });
+
+        // --- Reset ---
+        resetBtn.addEventListener('click', async function() {
+            try {
+                const resp = await fetch('/reset', { method: 'POST' });
+                if (resp.ok) {
+                    updateFileStatus(null);
+                    // Clear chat except welcome
+                    chatMessages.innerHTML = `<div class="message bot">🧹 State reset. Upload a new file to start.</div>`;
+                    uploadedFileName.textContent = 'No file selected';
+                    addMessage('State cleared successfully.', 'bot');
+                } else {
+                    const data = await resp.json();
+                    throw new Error(data.detail || 'Reset failed');
+                }
+            } catch (err) {
+                addMessage(`❌ Reset error: ${err.message}`, 'bot');
+            }
+        });
+
+        // Summary button
+        document.getElementById('summaryBtn').addEventListener('click', async function() {
+            try {
+                const resp = await fetch('/summary');
+                const data = await resp.json();
+                if (resp.ok) {
+                    addMessage(`📝 Summary:\n\n${data.summary}`, 'bot');
+                } else {
+                    throw new Error(data.detail || 'Summary failed');
+                }
+            } catch (err) {
+                addMessage(`❌ Summary error: ${err.message}`, 'bot');
+            }
+        });
+
+        // Dashboard button
+        document.getElementById('dashboardBtn').addEventListener('click', async function() {
+            try {
+                const resp = await fetch('/dashboard');
+                const data = await resp.json();
+                if (resp.ok) {
+                    // Generate dashboard HTML from data
+                    const dashboardHtml = generateDashboardHTML(data);
+                    // Open dashboard in new window
+                    const newWindow = window.open();
+                    newWindow.document.write(dashboardHtml);
+                    newWindow.document.close();
+                    addMessage('📊 Dashboard generated and opened in new window!', 'bot');
+                } else {
+                    throw new Error(data.detail || 'Dashboard generation failed');
+                }
+            } catch (err) {
+                addMessage(`❌ Dashboard error: ${err.message}`, 'bot');
+            }
+        });
+
+        // Generate dashboard HTML from data
+        function generateDashboardHTML(data) {
+            return `
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Data Analysis Dashboard</title>
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body {
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        padding: 30px 20px;
+                        min-height: 100vh;
+                    }
+                    .container {
+                        max-width: 1400px;
+                        margin: 0 auto;
+                    }
+                    .header {
+                        background: white;
+                        padding: 30px;
+                        border-radius: 15px;
+                        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+                        margin-bottom: 30px;
+                        text-align: center;
+                    }
+                    .header h1 {
+                        color: #333;
+                        margin-bottom: 10px;
+                        font-size: 32px;
+                    }
+                    .header p {
+                        color: #666;
+                        font-size: 15px;
+                        margin-bottom: 10px;
+                    }
+                    .stats-grid {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                        gap: 15px;
+                        margin-bottom: 30px;
+                    }
+                    .stat-card {
+                        background: white;
+                        padding: 25px;
+                        border-radius: 12px;
+                        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+                        text-align: center;
+                        transition: transform 0.3s;
+                    }
+                    .stat-card:hover {
+                        transform: translateY(-5px);
+                    }
+                    .stat-icon {
+                        font-size: 28px;
+                        margin-bottom: 10px;
+                    }
+                    .stat-label {
+                        color: #666;
+                        font-size: 13px;
+                        font-weight: 500;
+                        margin-bottom: 8px;
+                    }
+                    .stat-value {
+                        color: #333;
+                        font-size: 24px;
+                        font-weight: 700;
+                    }
+                    .content-grid {
+                        display: grid;
+                        grid-template-columns: 1fr 1fr;
+                        gap: 20px;
+                        margin-bottom: 30px;
+                    }
+                    .card {
+                        background: white;
+                        border-radius: 15px;
+                        padding: 25px;
+                        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+                    }
+                    .card h2 {
+                        color: #333;
+                        margin-bottom: 15px;
+                        font-size: 18px;
+                    }
+                    .card ul {
+                        list-style: none;
+                    }
+                    .card li {
+                        padding: 8px 0;
+                        color: #666;
+                        font-size: 14px;
+                        border-bottom: 1px solid #f0f0f0;
+                    }
+                    .card li:last-child {
+                        border-bottom: none;
+                    }
+                    .card strong {
+                        color: #333;
+                        font-weight: 600;
+                    }
+                    .footer {
+                        background: white;
+                        padding: 20px;
+                        border-radius: 15px;
+                        text-align: center;
+                        color: #666;
+                        font-size: 13px;
+                    }
+                    @media (max-width: 768px) {
+                        .content-grid { grid-template-columns: 1fr; }
+                        .stats-grid { grid-template-columns: repeat(2, 1fr); }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>📊 Data Analysis Dashboard</h1>
+                        <p>File: ${escapeHtml(data.filename)}</p>
+                    </div>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">📄</div>
+                            <div class="stat-label">Chunks</div>
+                            <div class="stat-value">${data.chunks_count}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">🔤</div>
+                            <div class="stat-label">Avg Chunk Size</div>
+                            <div class="stat-value">${data.avg_chunk_size} chars</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">💾</div>
+                            <div class="stat-label">Cache Utilization</div>
+                            <div class="stat-value">${data.prompt_cache_size}/${data.prompt_cache_max}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">⚡</div>
+                            <div class="stat-label">Embeddings Cached</div>
+                            <div class="stat-value">${data.embeddings_cache_size}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="content-grid">
+                        <div class="card">
+                            <h2>📋 Processing Summary</h2>
+                            <ul>
+                                <li><strong>File Name:</strong> ${escapeHtml(data.filename)}</li>
+                                <li><strong>Total Chunks:</strong> ${data.chunks_count}</li>
+                                <li><strong>Total Characters:</strong> ${data.total_characters.toLocaleString()}</li>
+                                <li><strong>Retrieval Model:</strong> ${data.retrieval_model}</li>
+                                <li><strong>LLM Model:</strong> ${data.llm_model}</li>
+                            </ul>
+                        </div>
+                        <div class="card">
+                            <h2>⚙️ System Performance</h2>
+                            <ul>
+                                <li><strong>Prompt Cache:</strong> ${data.prompt_cache_size} / ${data.prompt_cache_max}</li>
+                                <li><strong>Embeddings Cache:</strong> ${data.embeddings_cache_size} vectors</li>
+                                <li><strong>Query History:</strong> ${data.query_history_count} queries</li>
+                                <li><strong>Re-rank Top K:</strong> ${data.re_rank_top_k}</li>
+                                <li><strong>Similarity Threshold:</strong> ${data.similarity_threshold}</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="content-grid">
+                        <div class="card">
+                            <h2>🔧 Chunking Config</h2>
+                            <ul>
+                                <li><strong>Chunk Size:</strong> ${data.chunk_size} chars</li>
+                                <li><strong>Chunk Overlap:</strong> ${data.chunk_overlap} chars</li>
+                                <li><strong>Total Chunks:</strong> ${data.chunks_count}</li>
+                                <li><strong>Deduplication:</strong> Enabled</li>
+                                <li><strong>Filtering:</strong> Enabled</li>
+                            </ul>
+                        </div>
+                        <div class="card">
+                            <h2>🚀 Performance Metrics</h2>
+                            <ul>
+                                <li><strong>Memory Status:</strong> Optimized (LRU Cache)</li>
+                                <li><strong>Vectoring:</strong> Gemini Embedding 2</li>
+                                <li><strong>Re-ranking:</strong> Enabled</li>
+                                <li><strong>Cache Type:</strong> LRU with Eviction</li>
+                                <li><strong>Avg Chunk Size:</strong> ${data.avg_chunk_size} chars</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="footer">
+                        <p>Generated by Gemini RAG System | Advanced RAG with Caching & Re-ranking | ${new Date().toLocaleString()}</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            `;
+        }
+
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        // --- Initial status ---
+        // The backend sends "current_file" via the template replacement.
+        // We'll grab the status from the fileStatus element initially set by backend.
+        // But we can also try to fetch /health to get status.
+        async function fetchInitialStatus() {
+            try {
+                const resp = await fetch('/health');
+                const data = await resp.json();
+                if (data.file_indexed) {
+                    // We don't have the filename from /health, but we can use the badge text.
+                    // We'll let the user see the badge from the template.
+                    // Actually the badge in the header is static from template.
+                    // We'll just leave it; the upload/query will update it.
+                }
+            } catch (_) { /* ignore */ }
+        }
+        fetchInitialStatus();
+
+        // Update file status if the backend gave a filename via template replacement
+        // The template uses {{ current_file }} so we can set it via a meta tag or inline script.
+        // We'll rely on the backend to replace the file status area directly.
+        // But our template didn't have a placeholder for that, so we'll keep the default.
+        // Users can manually trigger a /health call to update.
+        // We'll just rely on upload/query to update the display.
+
+    })();
+</script>
+
+</body>
+</html>
