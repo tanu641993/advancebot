@@ -14,6 +14,8 @@ from collections import deque
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
+from fastapi.responses import HTMLResponse
+from pathlib import Path
 
 from langchain_community.document_loaders import CSVLoader, PyPDFLoader
 from langchain_community.vectorstores import FAISS
@@ -27,6 +29,7 @@ try:
 except ImportError:
     pd = None
 
+TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "index.html"
 logger = logging.getLogger("uvicorn.error")
 logger.setLevel(logging.INFO)
 
@@ -254,6 +257,35 @@ async def upload_file(file: UploadFile = File(...)):
             pass
     return {"message": "File uploaded and indexed successfully.", "filename": file.filename}
 
+@app.post("/query")
+async def query_rag(request: dict):
+    question = request.get("question")
+    if not question:
+        raise HTTPException(400, "Missing question")
+    if GLOBAL_STATE["retriever"] is None:
+        raise HTTPException(400, "No document indexed yet")
+
+    docs = GLOBAL_STATE["retriever"].invoke(question)
+    if not docs:
+        return {"answer": "No relevant information found.", "source_chunks": []}
+
+    context = "\n\n".join([d.page_content for d in docs])
+    source_chunks = [d.page_content[:150] + "..." for d in docs]
+
+    prompt = f"Answer based only on the context:\n\nContext:\n{context}\n\nQuestion: {question}\nAnswer:"
+    answer = llm_invoke(prompt)
+    return {"answer": answer, "source_chunks": source_chunks}
+
+
+@app.get("/summary")
+async def get_summary():
+    if not GLOBAL_STATE["all_chunks"]:
+        raise HTTPException(400, "No document indexed")
+    full_text = "\n\n".join(GLOBAL_STATE["all_chunks"])
+    prompt = f"Provide a comprehensive summary of the document:\n\n{full_text}\n\nSummary:"
+    summary = llm_invoke(prompt)
+    return {"summary": summary}
+
 # ─── Helper functions ──────────────────────────────────────────────────────
 
 def compute_hash(b: bytes) -> str:
@@ -319,8 +351,21 @@ def llm_invoke(prompt: str) -> str:
 # ─── Keep only the minimal endpoints for now ────────────────────────────────
 
 @app.get("/")
-async def root():
-    return HTMLResponse("<h1>✅ Helpers loaded</h1><p>All classes and helpers are working.</p>")
+async def home():
+    # Read the HTML template
+    try:
+        with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
+            html_content = f.read()
+    except FileNotFoundError:
+        return HTMLResponse("<h1>Error: index.html not found</h1>")
+    
+    # Get the current filename from global state
+    current_file = GLOBAL_STATE.get("filename") or "No document indexed yet"
+    
+    # Replace placeholder in HTML with the actual filename
+    html_content = html_content.replace("{{ current_file }}", current_file)
+    
+    return HTMLResponse(content=html_content)
 
 
 
