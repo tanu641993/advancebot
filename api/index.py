@@ -263,36 +263,32 @@ async def upload_file(file: UploadFile = File(...)):
 @app.get("/dashboard-data")
 async def get_dashboard_data():
     try:
-        # 1. Check raw data exists
         raw = GLOBAL_STATE.get("raw_data")
         if raw is None or len(raw) == 0:
             raise HTTPException(400, "No data uploaded yet.")
 
-        # 2. Ensure pandas is available
         if pd is None:
-            raise HTTPException(500, "Pandas is not installed. Please add pandas to requirements.txt.")
+            raise HTTPException(500, "Pandas is not installed.")
 
-        # 3. Create DataFrame with fallback
+        # --- SAFE DATAFRAME CREATION ---
         try:
             df = pd.DataFrame(raw)
         except Exception as e:
-            # If pandas fails, try converting to string first
-            # Sometimes rows have nested structures
-            cleaned_rows = []
+            # If direct conversion fails, try converting each value to string
+            cleaned = []
             for row in raw:
-                clean_row = {str(k): str(v) if v is not None else "" for k, v in row.items()}
-                cleaned_rows.append(clean_row)
-            df = pd.DataFrame(cleaned_rows)
+                cleaned.append({str(k): str(v) if v is not None else "" for k, v in row.items()})
+            df = pd.DataFrame(cleaned)
 
         if df.empty:
             raise HTTPException(400, "DataFrame is empty – no data to display.")
 
-        # 4. Basic info (always works)
+        # --- BASIC INFO (always works) ---
         total_rows = len(df)
         total_cols = len(df.columns)
         column_names = list(df.columns)
-        
-        # 5. Get column types as strings (safe)
+
+        # --- COLUMN TYPES (safe) ---
         dtypes = {}
         for col in df.columns:
             try:
@@ -300,23 +296,23 @@ async def get_dashboard_data():
             except:
                 dtypes[col] = "unknown"
 
-        # 6. Numeric summary (only for numeric columns)
+        # --- NUMERIC SUMMARY (skip non-numeric columns) ---
         numeric_summary = {}
         for col in df.columns:
             try:
                 if pd.api.types.is_numeric_dtype(df[col]):
                     numeric_summary[col] = {
-                        "mean": df[col].mean(),
-                        "min": df[col].min(),
-                        "max": df[col].max(),
-                        "std": df[col].std(),
-                        "count": df[col].count(),
-                        "missing": df[col].isna().sum()
+                        "mean": float(df[col].mean()),
+                        "min": float(df[col].min()),
+                        "max": float(df[col].max()),
+                        "std": float(df[col].std()),
+                        "count": int(df[col].count()),
+                        "missing": int(df[col].isna().sum())
                     }
             except:
-                pass  # skip if can't compute
+                pass
 
-        # 7. Categorical summary (only for object/string columns)
+        # --- CATEGORICAL SUMMARY (skip non-string columns) ---
         categorical_summary = {}
         for col in df.columns:
             try:
@@ -324,21 +320,21 @@ async def get_dashboard_data():
                     freq = df[col].value_counts().head(5).to_dict()
                     categorical_summary[col] = {
                         "top_values": freq,
-                        "unique_count": df[col].nunique(),
-                        "missing": df[col].isna().sum()
+                        "unique_count": int(df[col].nunique()),
+                        "missing": int(df[col].isna().sum())
                     }
             except:
                 pass
 
-        # 8. Missing values per column (safe)
+        # --- MISSING VALUES (safe) ---
         missing_per_col = {}
         for col in df.columns:
             try:
-                missing_per_col[col] = df[col].isna().sum()
+                missing_per_col[col] = int(df[col].isna().sum())
             except:
                 missing_per_col[col] = 0
 
-        # 9. Sample data (first 10 rows) – convert to safe dict
+        # --- SAMPLE DATA (first 10 rows, convert to dict) ---
         sample = []
         for _, row in df.head(10).iterrows():
             sample.append(row.to_dict())
