@@ -267,62 +267,63 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.get("/dashboard-data")
 async def get_dashboard_data():
-    if GLOBAL_STATE["raw_data"] is None or len(GLOBAL_STATE["raw_data"]) == 0:
+    """Return statistics and summary for the uploaded data."""
+    if GLOBAL_STATE.get("raw_data") is None or len(GLOBAL_STATE["raw_data"]) == 0:
         raise HTTPException(400, "No data uploaded yet.")
     
-    raw = GLOBAL_STATE["raw_data"]
-    # Convert to pandas DataFrame for easier analysis
-    import pandas as pd
-    df = pd.DataFrame(raw)
-    
-    # Basic info
-    total_rows = len(df)
-    total_cols = len(df.columns)
-    column_names = list(df.columns)
-    
-    # Data types
-    dtypes = df.dtypes.astype(str).to_dict()
-    
-    # Summary for numeric columns
-    numeric_cols = df.select_dtypes(include=['number']).columns
-    numeric_summary = {}
-    for col in numeric_cols:
-        numeric_summary[col] = {
-            "mean": df[col].mean(),
-            "min": df[col].min(),
-            "max": df[col].max(),
-            "std": df[col].std(),
-            "count": df[col].count(),
-            "missing": df[col].isna().sum()
+    try:
+        raw = GLOBAL_STATE["raw_data"]
+        # Ensure pandas is available
+        if pd is None:
+            raise HTTPException(500, "Pandas not installed.")
+        df = pd.DataFrame(raw)
+        
+        # Basic info
+        total_rows = len(df)
+        total_cols = len(df.columns)
+        column_names = list(df.columns)
+        dtypes = df.dtypes.astype(str).to_dict()
+        
+        # Numeric summary
+        numeric_cols = df.select_dtypes(include=['number']).columns
+        numeric_summary = {}
+        for col in numeric_cols:
+            numeric_summary[col] = {
+                "mean": df[col].mean(),
+                "min": df[col].min(),
+                "max": df[col].max(),
+                "std": df[col].std(),
+                "count": df[col].count(),
+                "missing": df[col].isna().sum()
+            }
+        
+        # Categorical summary
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns
+        categorical_summary = {}
+        for col in categorical_cols:
+            freq = df[col].value_counts().head(5).to_dict()
+            categorical_summary[col] = {
+                "top_values": freq,
+                "unique_count": df[col].nunique(),
+                "missing": df[col].isna().sum()
+            }
+        
+        missing_per_col = df.isna().sum().to_dict()
+        sample = df.head(10).to_dict(orient='records')
+        
+        return {
+            "total_rows": total_rows,
+            "total_cols": total_cols,
+            "column_names": column_names,
+            "dtypes": dtypes,
+            "numeric_summary": numeric_summary,
+            "categorical_summary": categorical_summary,
+            "missing_per_col": missing_per_col,
+            "sample": sample
         }
-    
-    # Summary for categorical columns (top 5 frequencies)
-    categorical_cols = df.select_dtypes(include=['object', 'category']).columns
-    categorical_summary = {}
-    for col in categorical_cols:
-        freq = df[col].value_counts().head(5).to_dict()
-        categorical_summary[col] = {
-            "top_values": freq,
-            "unique_count": df[col].nunique(),
-            "missing": df[col].isna().sum()
-        }
-    
-    # Overall missing values per column
-    missing_per_col = df.isna().sum().to_dict()
-    
-    # Sample data (first 10 rows) for preview
-    sample = df.head(10).to_dict(orient='records')
-    
-    return {
-        "total_rows": total_rows,
-        "total_cols": total_cols,
-        "column_names": column_names,
-        "dtypes": dtypes,
-        "numeric_summary": numeric_summary,
-        "categorical_summary": categorical_summary,
-        "missing_per_col": missing_per_col,
-        "sample": sample
-    }
+    except Exception as e:
+        logger.exception("Dashboard data error")
+        raise HTTPException(500, f"Error processing data: {str(e)}")
 
 @app.post("/query")
 async def query_rag(request: dict):
@@ -364,7 +365,11 @@ async def reset_state():
 
 @app.get("/dashboard")
 async def dashboard_page():
-    return FileResponse("templates/dashboard.html")
+    """Serve the dashboard HTML page."""
+    try:
+        return FileResponse("templates/dashboard.html")
+    except Exception as e:
+        return HTMLResponse(f"<h1>Error loading dashboard</h1><p>{str(e)}</p>", status_code=500)
 
 # ─── Helper functions ──────────────────────────────────────────────────────
 

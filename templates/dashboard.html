@@ -52,15 +52,18 @@
 </div>
 <script>
     async function loadDashboard() {
-        try {
-            const resp = await fetch('/dashboard-data');
-            const data = await resp.json();
-            if (!resp.ok) throw new Error(data.detail || 'Error loading data');
-            renderDashboard(data);
-        } catch (e) {
-            document.getElementById('loading').textContent = 'Error: ' + e.message;
+    try {
+        const resp = await fetch('/dashboard-data');
+        if (!resp.ok) {
+            const text = await resp.text();  // get raw response
+            throw new Error(`Server returned ${resp.status}: ${text.substring(0, 100)}`);
         }
+        const data = await resp.json();
+        renderDashboard(data);
+    } catch (e) {
+        document.getElementById('loading').textContent = 'Error: ' + e.message;
     }
+}
 
     function renderDashboard(data) {
         document.getElementById('loading').style.display = 'none';
