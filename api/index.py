@@ -339,74 +339,108 @@ def process_document(file_path: str, ext: str):
     """Main pipeline: Load file -> Clean -> Split -> Dedupe -> Embed -> Index."""
     logger.info(f"Processing {file_path} with extension {ext}")
     try:
-        # STEP 1: Load document based on file type
+        docs = []  # Will hold Document objects
+
+        # ─── CSV handling ──────────────────────────────────────────────
         if ext == ".csv":
-            docs = CSVLoader(file_path=file_path).load()
+            import csv
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+            if not rows:
+                raise HTTPException(status_code=400, detail="CSV is empty.")
+
+            block_size = 20  # adjust as needed
+            for i in range(0, len(rows), block_size):
+                block = rows[i:i+block_size]
+                text = f"Rows {i+1} to {min(i+block_size, len(rows))}:\n"
+                for row in block:
+                    text += ", ".join(f"{col}: {val}" for col, val in row.items()) + "\n"
+                # Create a Document object with metadata
+                class Doc:
+                    def __init__(self, content, meta):
+                        self.page_content = content
+                        self.metadata = meta
+                docs.append(Doc(text, {"source": "CSV", "row_start": i+1}))
+            logger.info(f"Created {len(docs)} blocks from CSV.")
+
+        # ─── PDF handling ──────────────────────────────────────────────
         elif ext == ".pdf":
             try:
                 docs = PyPDFLoader(file_path=file_path).load()
             except Exception as e:
-                # If PDF is encrypted, try with empty password
                 if "decrypted" in str(e).lower():
                     logger.warning("PDF is encrypted – trying with empty password.")
                     try:
                         docs = PyPDFLoader(file_path=file_path, password="").load()
                     except Exception as inner_e:
-                        raise HTTPException(status_code=400, detail=f"PDF encrypted and could not be decrypted: {str(inner_e)}")
+                        raise HTTPException(status_code=400, detail=f"PDF encrypted: {str(inner_e)}")
                 else:
                     raise
+
+        # ─── Excel handling ──────────────────────────────────────────────
         elif ext in (".xlsx", ".xls"):
-            excel_docs = load_excel_file(file_path)
-            # Convert to document objects with page_content and metadata
-            docs = []
-            for item in excel_docs:
-                class TempDoc:
-                    def __init__(self, content, meta):
-                        self.page_content = content
-                        self.metadata = meta
-                docs.append(TempDoc(item['page_content'], item['metadata']))
+            if pd is None:
+                raise HTTPException(status_code=400, detail="Pandas not installed for Excel support")
+            xls = pd.ExcelFile(file_path)
+            block_size = 20
+            for sheet_name in xls.sheet_names:
+                df = pd.read_excel(file_path, sheet_name=sheet_name)
+                if df.empty:
+                    continue
+                # Group rows into blocks
+                for i in range(0, len(df), block_size):
+                    block = df.iloc[i:i+block_size]
+                    text = f"Sheet: {sheet_name} | Rows {i+2} to {min(i+block_size, len(df))+1}:\n"
+                    for idx, row in block.iterrows():
+                        row_text = ", ".join(f"{col}: {row[col]}" for col in df.columns)
+                        text += row_text + "\n"
+                    class Doc:
+                        def __init__(self, content, meta):
+                            self.page_content = content
+                            self.metadata = meta
+                    docs.append(Doc(text, {"sheet": sheet_name, "row_start": i+2, "source": "Excel"}))
+            logger.info(f"Created {len(docs)} blocks from Excel.")
+
         else:
             raise HTTPException(status_code=400, detail="Unsupported format")
 
         if not docs:
             raise HTTPException(status_code=400, detail="No content extracted from file")
 
-        # STEP 2: Clean text in all documents
+        # ─── Clean all documents ──────────────────────────────────────
         for doc in docs:
             doc.page_content = clean_text(doc.page_content)
 
-        # STEP 3: Split into chunks
+        # ─── Split into chunks ──────────────────────────────────────
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP
         )
         chunks = text_splitter.split_documents(docs)
         logger.info(f"Split into {len(chunks)} chunks")
 
-        # STEP 4: Deduplicate
+        # ─── Deduplicate ──────────────────────────────────────────────
         chunks = deduplicate_chunks(chunks)
         logger.info(f"After deduplication: {len(chunks)} unique chunks")
 
-        # STEP 5: Filter short chunks (likely noise)
-        chunks = [c for c in chunks if len(c.page_content.strip()) > 50]
-        logger.info(f"After filtering short chunks: {len(chunks)} chunks")
+        # ─── Filter only truly empty chunks ──────────────────────────
+        chunks = [c for c in chunks if len(c.page_content.strip()) > 0]
+        logger.info(f"After filtering empty chunks: {len(chunks)} chunks")
 
-        # STEP 6: If no chunks remain, raise an error
         if not chunks:
             raise HTTPException(
                 status_code=400,
-                detail="No valid chunks extracted. Document may be empty, scanned (image-only), or the text could not be extracted. Try a different file."
+                detail="No valid chunks extracted. Document may be empty or text could not be extracted."
             )
 
-        # STEP 7: Store chunks and metadata
+        # ─── Store and embed ──────────────────────────────────────────
         GLOBAL_STATE["all_chunks"] = [chunk.page_content for chunk in chunks]
         GLOBAL_STATE["chunk_metadata"] = [getattr(chunk, 'metadata', {}) for chunk in chunks]
 
-        # STEP 8: Create embeddings and build vector database
         embeddings = GeminiEmbeddings(model="gemini-embedding-2")
         vectorstore = FAISS.from_documents(chunks, embeddings)
         GLOBAL_STATE["retriever"] = vectorstore.as_retriever(search_kwargs={"k": TOP_K})
 
-        # STEP 9: Store file metadata
         GLOBAL_STATE["file_hash"] = compute_hash(open(file_path, "rb").read())
         GLOBAL_STATE["filename"] = Path(file_path).name
         logger.info(f"Indexed {GLOBAL_STATE['filename']} successfully")
@@ -416,139 +450,6 @@ def process_document(file_path: str, ext: str):
     except Exception as e:
         logger.exception("process_document failed")
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
-
-# ── Endpoints ──────────────────────────────────────────────────────────────────
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# STEP 13: API ENDPOINTS - Define routes for the web application
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@app.get("/", response_class=HTMLResponse)
-async def home_interface():
-    """Serve the main UI page."""
-    # Get the name of currently indexed file (or default message)
-    current_file = GLOBAL_STATE["filename"] or "No document indexed yet"
-    # Replace placeholder in HTML template with actual filename
-    html = HTML_TEMPLATE.replace("{{ current_file }}", current_file)
-    return HTMLResponse(content=html)
-
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    """Upload and index a CSV, PDF, or Excel file."""
-    # Validate file was selected
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No file selected")
-
-    # Check file extension
-    ext = Path(file.filename).suffix.lower()
-    if ext not in (".csv", ".pdf", ".xlsx", ".xls"):
-        raise HTTPException(status_code=400, detail="Only CSV, PDF, or Excel files allowed")
-
-    # Write uploaded file to temporary file on disk
-    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-        content = await file.read()  # Read file from request
-        tmp.write(content)  # Write to temp file
-        tmp_path = tmp.name  # Get temp file path
-
-    try:
-        # Index the document (build vector DB)
-        process_document(tmp_path, ext)
-    finally:
-        # Clean up temp file
-        try:
-            os.unlink(tmp_path)
-        except:
-            pass
-
-    return {"message": "File uploaded and indexed successfully.", "filename": file.filename}
-
-@app.post("/query", response_model=QueryResponse)
-async def query_rag(request: QueryRequest):
-    """Answer a user question using RAG with re-ranking and better vectoring."""
-    # Check if a document has been indexed
-    if GLOBAL_STATE["retriever"] is None:
-        raise HTTPException(status_code=400, detail="No document indexed yet.")
-    # Validate question is not empty
-    if not request.question.strip():
-        raise HTTPException(status_code=400, detail="Question cannot be empty.")
-
-    try:
-        # STEP 1: Clean the user's question for better retrieval
-        clean_question = clean_text(request.question)
-        
-        # STEP 2: Retrieve more chunks than needed (for re-ranking)
-        docs = GLOBAL_STATE["retriever"].invoke(clean_question)
-        if not docs:
-            raise HTTPException(status_code=404, detail="No relevant documents found.")
-        
-        # STEP 3: Re-rank retrieved chunks with improved similarity computation
-        embeddings = GeminiEmbeddings(model="gemini-embedding-2")
-        
-        # Get question embedding with caching
-        q_hash = prompt_hash(clean_question)
-        if q_hash in GLOBAL_STATE["embeddings_cache"]:
-            question_embedding = GLOBAL_STATE["embeddings_cache"][q_hash]
-        else:
-            question_embedding = embeddings.embed_query(clean_question)
-            GLOBAL_STATE["embeddings_cache"][q_hash] = question_embedding
-        
-        # Score each chunk's relevance with cached embeddings
-        scored_docs = []
-        for doc in docs:
-            doc_hash = prompt_hash(doc.page_content)
-            if doc_hash in GLOBAL_STATE["embeddings_cache"]:
-                doc_embedding = GLOBAL_STATE["embeddings_cache"][doc_hash]
-            else:
-                doc_embedding = embeddings.embed_query(doc.page_content)
-                GLOBAL_STATE["embeddings_cache"][doc_hash] = doc_embedding
-            
-            # Compute cosine similarity (improved function)
-            similarity = compute_cosine_similarity(question_embedding, doc_embedding)
-            if similarity >= SIMILARITY_THRESHOLD:  # Only keep relevant chunks
-                scored_docs.append((doc, similarity))
-        
-        # Keep only the most relevant chunks
-        scored_docs.sort(key=lambda x: x[1], reverse=True)
-        top_docs = [doc for doc, score in scored_docs[:RE_RANK_TOP_K]]
-        
-        if not top_docs:
-            raise HTTPException(status_code=404, detail="No highly relevant information found.")
-        
-        # STEP 4: Prepare context from re-ranked chunks
-        context = "\n\n".join([doc.page_content for doc in top_docs])
-        # Store chunks with better formatting as source reference
-        source_chunks = [
-            f"[Chunk {i+1}] {doc.page_content[:150]}..." 
-            for i, doc in enumerate(top_docs)
-        ]
-        
-        # STEP 5: Build optimized prompt with context and question
-        prompt = f"""
-        You are an accurate assistant answering questions based on provided documents.
-        
-        INSTRUCTIONS:
-        - Answer ONLY using the context provided below
-        - Be specific and cite relevant information
-        - If the answer is not in the context, clearly state: "I don't have that information."
-        - Provide a clear, concise, and well-structured answer
-        - If relevant, break your answer into numbered points
-        
-        CONTEXT:
-        {context}
-        
-        QUESTION: {request.question}
-        
-        ANSWER:
-        """
-        # STEP 6: Generate answer using Gemini LLM with optimized settings and caching
-        answer = llm_invoke(prompt)
-        # Return answer with source chunks for transparency
-        return QueryResponse(answer=answer, source_chunks=source_chunks)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Query failed")
-        raise HTTPException(status_code=500, detail=f"Query error: {str(e)}")
 
 @app.get("/summary")
 async def get_summary():
