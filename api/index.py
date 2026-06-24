@@ -13,6 +13,7 @@ from collections import deque
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 from fastapi.responses import HTMLResponse
 from pathlib import Path
@@ -82,6 +83,7 @@ GLOBAL_STATE = {
     "chunk_metadata": [],
     "embeddings_cache": {},
     "query_history": deque(maxlen=50),
+    "raw_data": None,
 }
 
 class GeminiEmbeddings:
@@ -143,8 +145,10 @@ def process_document(file_path: str, ext: str):
             with open(file_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 rows = list(reader)
+                #GLOBAL_STATE["raw_data"] = rows
             if not rows:
                 raise HTTPException(400, "CSV is empty.")
+            GLOBAL_STATE["raw_data"] = rows
             block_size = 20
             for i in range(0, len(rows), block_size):
                 block = rows[i:i+block_size]
@@ -174,11 +178,14 @@ def process_document(file_path: str, ext: str):
             if pd is None:
                 raise HTTPException(400, "Pandas not installed")
             xls = pd.ExcelFile(file_path)
+            all_rows = []
             block_size = 20
             for sheet in xls.sheet_names:
                 df = pd.read_excel(file_path, sheet_name=sheet)
                 if df.empty:
                     continue
+                rows = df.to_dict(orient='records')
+                all_rows.extend(rows)
                 for i in range(0, len(df), block_size):
                     block = df.iloc[i:i+block_size]
                     text = f"Sheet: {sheet} | Rows {i+2} to {min(i+block_size, len(df))+1}:\n"
@@ -189,6 +196,7 @@ def process_document(file_path: str, ext: str):
                             self.page_content = content
                             self.metadata = meta
                     docs.append(Doc(text, {"sheet": sheet, "row_start": i+2, "source": "Excel"}))
+            GLOBAL_STATE["raw_data"] = all_rows
             logger.info(f"Created {len(docs)} blocks from Excel.")
 
         else:
@@ -257,6 +265,65 @@ async def upload_file(file: UploadFile = File(...)):
             pass
     return {"message": "File uploaded and indexed successfully.", "filename": file.filename}
 
+@app.get("/dashboard-data")
+async def get_dashboard_data():
+    if GLOBAL_STATE["raw_data"] is None or len(GLOBAL_STATE["raw_data"]) == 0:
+        raise HTTPException(400, "No data uploaded yet.")
+    
+    raw = GLOBAL_STATE["raw_data"]
+    # Convert to pandas DataFrame for easier analysis
+    import pandas as pd
+    df = pd.DataFrame(raw)
+    
+    # Basic info
+    total_rows = len(df)
+    total_cols = len(df.columns)
+    column_names = list(df.columns)
+    
+    # Data types
+    dtypes = df.dtypes.astype(str).to_dict()
+    
+    # Summary for numeric columns
+    numeric_cols = df.select_dtypes(include=['number']).columns
+    numeric_summary = {}
+    for col in numeric_cols:
+        numeric_summary[col] = {
+            "mean": df[col].mean(),
+            "min": df[col].min(),
+            "max": df[col].max(),
+            "std": df[col].std(),
+            "count": df[col].count(),
+            "missing": df[col].isna().sum()
+        }
+    
+    # Summary for categorical columns (top 5 frequencies)
+    categorical_cols = df.select_dtypes(include=['object', 'category']).columns
+    categorical_summary = {}
+    for col in categorical_cols:
+        freq = df[col].value_counts().head(5).to_dict()
+        categorical_summary[col] = {
+            "top_values": freq,
+            "unique_count": df[col].nunique(),
+            "missing": df[col].isna().sum()
+        }
+    
+    # Overall missing values per column
+    missing_per_col = df.isna().sum().to_dict()
+    
+    # Sample data (first 10 rows) for preview
+    sample = df.head(10).to_dict(orient='records')
+    
+    return {
+        "total_rows": total_rows,
+        "total_cols": total_cols,
+        "column_names": column_names,
+        "dtypes": dtypes,
+        "numeric_summary": numeric_summary,
+        "categorical_summary": categorical_summary,
+        "missing_per_col": missing_per_col,
+        "sample": sample
+    }
+
 @app.post("/query")
 async def query_rag(request: dict):
     question = request.get("question")
@@ -294,6 +361,10 @@ async def reset_state():
     GLOBAL_STATE["all_chunks"] = []
     GLOBAL_STATE["prompt_cache"].clear()
     return {"message": "State reset"}
+
+@app.get("/dashboard")
+async def dashboard_page():
+    return FileResponse("templates/dashboard.html")
 
 # ─── Helper functions ──────────────────────────────────────────────────────
 

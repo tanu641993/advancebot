@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f0f2f5; padding: 20px; }
+        .container { max-width: 1200px; margin: auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #1a3a5c; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 20px 0; }
+        .stat-card { background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }
+        .stat-card .number { font-size: 28px; font-weight: bold; color: #1a73e8; }
+        .stat-card .label { color: #555; }
+        .section { margin-top: 30px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #e9ecef; }
+        .chart-container { width: 100%; max-width: 500px; margin: 20px 0; }
+        .back-link { display: inline-block; margin-top: 20px; color: #1a73e8; text-decoration: none; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>📊 Data Dashboard</h1>
+    <div id="loading">Loading dashboard...</div>
+    <div id="dashboard-content" style="display: none;">
+        <div class="stats-grid" id="statsGrid"></div>
+        <div class="section">
+            <h2>Column Types</h2>
+            <div id="columnTypes"></div>
+        </div>
+        <div class="section">
+            <h2>Numeric Columns Summary</h2>
+            <div id="numericSummary"></div>
+        </div>
+        <div class="section">
+            <h2>Missing Values</h2>
+            <div id="missingValues"></div>
+        </div>
+        <div class="section">
+            <h2>Sample Data (first 10 rows)</h2>
+            <div id="sampleData"></div>
+        </div>
+        <div class="section">
+            <h2>Bar Chart (first numeric column)</h2>
+            <div class="chart-container"><canvas id="myChart"></canvas></div>
+        </div>
+        <a href="/" class="back-link">← Back to Chat</a>
+    </div>
+</div>
+<script>
+    async function loadDashboard() {
+        try {
+            const resp = await fetch('/dashboard-data');
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'Error loading data');
+            renderDashboard(data);
+        } catch (e) {
+            document.getElementById('loading').textContent = 'Error: ' + e.message;
+        }
+    }
+
+    function renderDashboard(data) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('dashboard-content').style.display = 'block';
+
+        // Stats grid
+        const stats = [
+            { label: 'Total Rows', value: data.total_rows },
+            { label: 'Total Columns', value: data.total_cols },
+            { label: 'Numeric Columns', value: Object.keys(data.numeric_summary).length },
+            { label: 'Categorical Columns', value: Object.keys(data.categorical_summary).length }
+        ];
+        const grid = document.getElementById('statsGrid');
+        stats.forEach(s => {
+            const div = document.createElement('div');
+            div.className = 'stat-card';
+            div.innerHTML = `<div class="number">${s.value}</div><div class="label">${s.label}</div>`;
+            grid.appendChild(div);
+        });
+
+        // Column types
+        const typesDiv = document.getElementById('columnTypes');
+        let html = '<table><tr><th>Column</th><th>Type</th><th>Missing</th></tr>';
+        for (const [col, dtype] of Object.entries(data.dtypes)) {
+            const missing = data.missing_per_col[col] || 0;
+            html += `<tr><td>${col}</td><td>${dtype}</td><td>${missing}</td></tr>`;
+        }
+        html += '</table>';
+        typesDiv.innerHTML = html;
+
+        // Numeric summary
+        const numDiv = document.getElementById('numericSummary');
+        let numHtml = '<table><tr><th>Column</th><th>Mean</th><th>Min</th><th>Max</th><th>Std</th><th>Count</th></tr>';
+        for (const [col, stats] of Object.entries(data.numeric_summary)) {
+            numHtml += `<tr><td>${col}</td><td>${stats.mean.toFixed(2)}</td><td>${stats.min}</td><td>${stats.max}</td><td>${stats.std.toFixed(2)}</td><td>${stats.count}</td></tr>`;
+        }
+        numHtml += '</table>';
+        numDiv.innerHTML = numHtml;
+
+        // Missing values
+        const missDiv = document.getElementById('missingValues');
+        let missHtml = '<table><tr><th>Column</th><th>Missing</th><th>%</th></tr>';
+        for (const [col, missing] of Object.entries(data.missing_per_col)) {
+            const pct = ((missing / data.total_rows) * 100).toFixed(1);
+            missHtml += `<tr><td>${col}</td><td>${missing}</td><td>${pct}%</td></tr>`;
+        }
+        missHtml += '</table>';
+        missDiv.innerHTML = missHtml;
+
+        // Sample data
+        const sampleDiv = document.getElementById('sampleData');
+        let sampleHtml = '<table><tr>';
+        const cols = Object.keys(data.sample[0] || {});
+        cols.forEach(c => sampleHtml += `<th>${c}</th>`);
+        sampleHtml += '</tr>';
+        data.sample.forEach(row => {
+            sampleHtml += '<tr>';
+            cols.forEach(c => sampleHtml += `<td>${row[c] !== undefined ? row[c] : ''}</td>`);
+            sampleHtml += '</tr>';
+        });
+        sampleHtml += '</table>';
+        sampleDiv.innerHTML = sampleHtml;
+
+        // Chart: First numeric column
+        const numCols = Object.keys(data.numeric_summary);
+        if (numCols.length > 0) {
+            const col = numCols[0];
+            // Get values for first 10 rows for simplicity
+            const values = data.sample.map(row => row[col]).filter(v => v !== undefined && v !== null);
+            const ctx = document.getElementById('myChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: values.map((_, i) => `Row ${i+1}`),
+                    datasets: [{
+                        label: col,
+                        data: values,
+                        backgroundColor: 'rgba(26, 115, 232, 0.6)',
+                        borderColor: 'rgba(26, 115, 232, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: { display: true, text: `First 10 values of ${col}` }
+                    }
+                }
+            });
+        }
+    }
+
+    loadDashboard();
+</script>
+</body>
+</html>
