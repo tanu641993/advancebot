@@ -266,69 +266,20 @@ async def upload_file(file: UploadFile = File(...)):
             pass
     return {"message": "File uploaded and indexed successfully.", "filename": file.filename}
 
-@app.get("/dashboard-data")
-async def get_dashboard_data():
-    try:
-        """Return statistics and summary for the uploaded data."""
-        if GLOBAL_STATE.get("raw_data") is None or len(GLOBAL_STATE["raw_data"]) == 0:
-            raise HTTPException(400, "No data uploaded yet.")
-        
-            
-            # Ensure pandas is available
-            if pd is None:
-                raise HTTPException(500, "Pandas not installed.")
-            raw = GLOBAL_STATE["raw_data"]
-            df = pd.DataFrame(raw)
-
-            if df.empty:
-                raise HTTPException(400, "DataFrame is empty – no data to display.")
-            
-            # Basic info
-            total_rows = len(df)
-            total_cols = len(df.columns)
-            column_names = list(df.columns)
-            dtypes = df.dtypes.astype(str).to_dict()
-            
-            # Numeric summary
-            numeric_cols = df.select_dtypes(include=['number']).columns
-            numeric_summary = {}
-            for col in numeric_cols:
-                numeric_summary[col] = {
-                    "mean": df[col].mean(),
-                    "min": df[col].min(),
-                    "max": df[col].max(),
-                    "std": df[col].std(),
-                    "count": df[col].count(),
-                    "missing": df[col].isna().sum()
-                }
-            
-            # Categorical summary
-            categorical_cols = df.select_dtypes(include=['object', 'category']).columns
-            categorical_summary = {}
-            for col in categorical_cols:
-                freq = df[col].value_counts().head(5).to_dict()
-                categorical_summary[col] = {
-                    "top_values": freq,
-                    "unique_count": df[col].nunique(),
-                    "missing": df[col].isna().sum()
-                }
-            
-            missing_per_col = df.isna().sum().to_dict()
-            sample = df.head(10).to_dict(orient='records')
-            
-            return {
-                "total_rows": total_rows,
-                "total_cols": total_cols,
-                "column_names": column_names,
-                "dtypes": dtypes,
-                "numeric_summary": numeric_summary,
-                "categorical_summary": categorical_summary,
-                "missing_per_col": missing_per_col,
-                "sample": sample
-            }
-    except Exception as e:
-        logger.exception("Dashboard data error")
-        raise HTTPException(500, f"Error processing data: {str(e)}")
+elif ext in (".xlsx", ".xls"):
+    if pd is None:
+        raise HTTPException(400, "Pandas not installed")
+    xls = pd.ExcelFile(file_path)
+    all_rows = []
+    block_size = 20
+    for sheet in xls.sheet_names:
+        df = pd.read_excel(file_path, sheet_name=sheet)
+        if df.empty:
+            continue
+        rows = df.to_dict(orient='records')
+        all_rows.extend(rows)   # collect all rows
+        # ... rest of block creation code ...
+    GLOBAL_STATE["raw_data"] = all_rows   # after loop
 
 @app.post("/query")
 async def query_rag(request: dict):
