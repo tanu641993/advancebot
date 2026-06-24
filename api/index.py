@@ -263,51 +263,86 @@ async def upload_file(file: UploadFile = File(...)):
 @app.get("/dashboard-data")
 async def get_dashboard_data():
     try:
-        if GLOBAL_STATE.get("raw_data") is None or len(GLOBAL_STATE["raw_data"]) == 0:
+        # 1. Check raw data exists
+        raw = GLOBAL_STATE.get("raw_data")
+        if raw is None or len(raw) == 0:
             raise HTTPException(400, "No data uploaded yet.")
-        
+
+        # 2. Ensure pandas is available
         if pd is None:
-            raise HTTPException(500, "Pandas is not installed.")
-        
-        raw = GLOBAL_STATE["raw_data"]
-        df = pd.DataFrame(raw)
-        
+            raise HTTPException(500, "Pandas is not installed. Please add pandas to requirements.txt.")
+
+        # 3. Create DataFrame with fallback
+        try:
+            df = pd.DataFrame(raw)
+        except Exception as e:
+            # If pandas fails, try converting to string first
+            # Sometimes rows have nested structures
+            cleaned_rows = []
+            for row in raw:
+                clean_row = {str(k): str(v) if v is not None else "" for k, v in row.items()}
+                cleaned_rows.append(clean_row)
+            df = pd.DataFrame(cleaned_rows)
+
         if df.empty:
             raise HTTPException(400, "DataFrame is empty – no data to display.")
-        
-        # Basic info
+
+        # 4. Basic info (always works)
         total_rows = len(df)
         total_cols = len(df.columns)
         column_names = list(df.columns)
-        dtypes = df.dtypes.astype(str).to_dict()
         
-        # Numeric summary
-        numeric_cols = df.select_dtypes(include=['number']).columns
+        # 5. Get column types as strings (safe)
+        dtypes = {}
+        for col in df.columns:
+            try:
+                dtypes[col] = str(df[col].dtype)
+            except:
+                dtypes[col] = "unknown"
+
+        # 6. Numeric summary (only for numeric columns)
         numeric_summary = {}
-        for col in numeric_cols:
-            numeric_summary[col] = {
-                "mean": df[col].mean(),
-                "min": df[col].min(),
-                "max": df[col].max(),
-                "std": df[col].std(),
-                "count": df[col].count(),
-                "missing": df[col].isna().sum()
-            }
-        
-        # Categorical summary
-        categorical_cols = df.select_dtypes(include=['object', 'category']).columns
+        for col in df.columns:
+            try:
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    numeric_summary[col] = {
+                        "mean": df[col].mean(),
+                        "min": df[col].min(),
+                        "max": df[col].max(),
+                        "std": df[col].std(),
+                        "count": df[col].count(),
+                        "missing": df[col].isna().sum()
+                    }
+            except:
+                pass  # skip if can't compute
+
+        # 7. Categorical summary (only for object/string columns)
         categorical_summary = {}
-        for col in categorical_cols:
-            freq = df[col].value_counts().head(5).to_dict()
-            categorical_summary[col] = {
-                "top_values": freq,
-                "unique_count": df[col].nunique(),
-                "missing": df[col].isna().sum()
-            }
-        
-        missing_per_col = df.isna().sum().to_dict()
-        sample = df.head(10).to_dict(orient='records')
-        
+        for col in df.columns:
+            try:
+                if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+                    freq = df[col].value_counts().head(5).to_dict()
+                    categorical_summary[col] = {
+                        "top_values": freq,
+                        "unique_count": df[col].nunique(),
+                        "missing": df[col].isna().sum()
+                    }
+            except:
+                pass
+
+        # 8. Missing values per column (safe)
+        missing_per_col = {}
+        for col in df.columns:
+            try:
+                missing_per_col[col] = df[col].isna().sum()
+            except:
+                missing_per_col[col] = 0
+
+        # 9. Sample data (first 10 rows) – convert to safe dict
+        sample = []
+        for _, row in df.head(10).iterrows():
+            sample.append(row.to_dict())
+
         return {
             "total_rows": total_rows,
             "total_cols": total_cols,
