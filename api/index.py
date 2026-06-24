@@ -145,7 +145,7 @@ def process_document(file_path: str, ext: str):
             with open(file_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 rows = list(reader)
-                #GLOBAL_STATE["raw_data"] = rows
+                GLOBAL_STATE["raw_data"] = rows
             if not rows:
                 raise HTTPException(400, "CSV is empty.")
             GLOBAL_STATE["raw_data"] = rows
@@ -185,6 +185,7 @@ def process_document(file_path: str, ext: str):
                 if df.empty:
                     continue
                 rows = df.to_dict(orient='records')
+            GLOBAL_STATE["raw_data"] = rows
                 all_rows.extend(rows)
                 for i in range(0, len(df), block_size):
                     block = df.iloc[i:i+block_size]
