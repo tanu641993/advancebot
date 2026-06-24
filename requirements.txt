@@ -10,4 +10,5 @@ python-multipart>=0.0.9
 google-genai>=0.2.0        # <-- new SDK
 langchain-text-splitters
 google-genai>=0.2.0
+openpyxl>=3.1.0
 # ... other packages (no langchain-google-genai)

@@ -597,15 +597,6 @@ async def health():
         "memory_status": "optimized"
     }
 
-@app.get("/list-generative-models")
-async def list_generative_models():
-    """List available Gemini models from Google API."""
-    try:
-        # Query Gemini API for available models
-        client = genai.Client(api_key=GOOGLE_API_KEY, http_options={'api_version': 'v1'})
-        models = client.models.list()  # Get all models
-        # Extract model names
-        model_names = [m.name for m in models]
-        return {"all_models": model_names}
-    except Exception as e:
-        return {"error": str(e)}
+@app.get("/ping")
+async def ping():
+    return {"status": "ok"}
