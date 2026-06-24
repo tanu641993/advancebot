@@ -492,3 +492,16 @@ async def health():
         "current_file": GLOBAL_STATE["filename"],
         "chunks_count": len(GLOBAL_STATE["all_chunks"]),
     }
+
+@app.get("/debug-raw")
+async def debug_raw():
+    raw = GLOBAL_STATE.get("raw_data")
+    if raw is None:
+        return {"raw_data": None}
+    return {
+        "raw_data_type": str(type(raw)),
+        "raw_data_length": len(raw),
+        "first_row": raw[0] if raw and len(raw) > 0 else None,
+        "last_row": raw[-1] if raw and len(raw) > 0 else None,
+        "sample_rows": raw[:3] if raw else []
+    }
