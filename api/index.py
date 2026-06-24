@@ -286,6 +286,15 @@ async def get_summary():
     summary = llm_invoke(prompt)
     return {"summary": summary}
 
+@app.post("/reset")
+async def reset_state():
+    GLOBAL_STATE["retriever"] = None
+    GLOBAL_STATE["file_hash"] = None
+    GLOBAL_STATE["filename"] = None
+    GLOBAL_STATE["all_chunks"] = []
+    GLOBAL_STATE["prompt_cache"].clear()
+    return {"message": "State reset"}
+
 # ─── Helper functions ──────────────────────────────────────────────────────
 
 def compute_hash(b: bytes) -> str:
