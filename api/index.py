@@ -37,10 +37,7 @@ if not GOOGLE_API_KEY:
 
 app = FastAPI(title="Gemini RAG Data API", version="1.0")
 
-# ─── Keep only the minimal endpoints for now ───
-@app.get("/")
-async def root():
-    return HTMLResponse("<h1>✅ Imports loaded</h1><p>Your imports and API key check passed.</p>")
+
 
 # ─── Helper classes and functions ─────────────────────────────────────────────
 
