@@ -204,3 +204,12 @@ async def root():
 @app.get("/ping")
 async def ping():
     return {"status": "ok"}
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "file_indexed": GLOBAL_STATE["filename"] is not None,
+        "current_file": GLOBAL_STATE["filename"],
+        "chunks_count": len(GLOBAL_STATE["all_chunks"]),
+    }
