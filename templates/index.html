@@ -135,14 +135,18 @@
         }
 
         .upload-area .reset-btn {
-            background: transparent;
-            border: 1px solid #4a5f78;
-            color: #b0c8e0;
-            padding: 6px 16px;
-            border-radius: 30px;
-            font-size: 13px;
+            background: #2b4a6e;       /* same as upload button */
+            color: white;
+            border: none;              /* remove border */
+            padding: 8px 18px;         /* consistent padding */
+            border-radius: 30px;       /* rounded pill shape */
+            font-size: 14px;
+            font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: background 0.2s, transform 0.1s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
         }
 
         .upload-area .reset-btn:hover {
@@ -172,9 +176,7 @@
             background: #2b4a6e;
             border-radius: 8px;
         }
-        .dashboard-btn { background: #6f42c1; margin-left: 10px; }
-        .dashboard-btn:hover { background: #5a2d8a; }
-
+        
         .message {
             max-width: 80%;
             padding: 12px 18px;
@@ -293,6 +295,10 @@
             cursor: not-allowed;
         }
 
+        .resetBtn:hover {
+            background: #dc3545;   /* red */
+        }
+
         /* Animations */
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(6px); }
@@ -316,7 +322,7 @@
     <div class="header">
         <div class="header-left">
             <span class="icon">🧠</span>
-            <h1>Gemini RAG</h1>
+            <h1>InsightBot</h1>
             <span class="badge">v1.0</span>
         </div>
         <div class="file-status" id="fileStatus">
@@ -331,7 +337,7 @@
         <input type="file" id="fileInput" accept=".csv,.pdf,.xlsx,.xls" />
         <span class="file-name" id="uploadedFileName">No file selected</span>
         <button class="reset-btn" id="summaryBtn">📄 Summary</button>
-        <button class="dashboardBtn" id="dashboard-btn">📊 Dashboard</button>
+        <button class="reset-btn" id="dashboard-btn">📊 Dashboard</button>
         <button class="reset-btn" id="resetBtn">♻️ Reset</button>
     </div>
 
@@ -382,6 +388,80 @@
             const div = document.createElement('div');
             div.className = `message ${sender}`;
             div.textContent = text;
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Generate a formatted dashboard HTML string from data
+        function generateDashboardHTML(data) {
+            // Build column info
+            let columnInfo = '<ul>';
+            for (const [col, dtype] of Object.entries(data.dtypes || {})) {
+                const missing = data.missing_per_col?.[col] || 0;
+                columnInfo += `<li><strong>${escapeHtml(col)}</strong> (${dtype}) – missing: ${missing}</li>`;
+            }
+            columnInfo += '</ul>';
+
+            // Numeric summary
+            let numericHTML = '';
+            const numCols = Object.keys(data.numeric_summary || {});
+            if (numCols.length > 0) {
+                numericHTML = '<h3>📊 Numeric Columns</h3><ul>';
+                for (const col of numCols) {
+                    const stats = data.numeric_summary[col];
+                    numericHTML += `<li><strong>${escapeHtml(col)}</strong>: mean=${stats.mean?.toFixed(2)}, min=${stats.min}, max=${stats.max}, std=${stats.std?.toFixed(2)}</li>`;
+                }
+                numericHTML += '</ul>';
+            }
+
+            // Categorical summary
+            let catHTML = '';
+            const catCols = Object.keys(data.categorical_summary || {});
+            if (catCols.length > 0) {
+                catHTML = '<h3>🏷️ Categorical Columns (Top 5 values)</h3><ul>';
+                for (const col of catCols) {
+                    const info = data.categorical_summary[col];
+                    catHTML += `<li><strong>${escapeHtml(col)}</strong> (${info.unique_count} unique): ${Object.entries(info.top_values || {}).map(([v, c]) => `${escapeHtml(v)} (${c})`).join(', ')}</li>`;
+                }
+                catHTML += '</ul>';
+            }
+
+            // Sample data (first 5 rows) as a table
+            let sampleHTML = '';
+            if (data.sample && data.sample.length > 0) {
+                const headers = Object.keys(data.sample[0]);
+                sampleHTML = '<h3>📋 Sample Data (first 5 rows)</h3><table style="width:100%;border-collapse:collapse;font-size:13px;">';
+                sampleHTML += '<thead><tr>' + headers.map(h => `<th style="border:1px solid #2a3a4e;padding:6px;background:#1a2634;color:#e8edf5;">${escapeHtml(h)}</th>`).join('') + '</tr></thead>';
+                sampleHTML += '<tbody>';
+                for (let i = 0; i < Math.min(5, data.sample.length); i++) {
+                    const row = data.sample[i];
+                    sampleHTML += '<tr>' + headers.map(h => `<td style="border:1px solid #2a3a4e;padding:6px;color:#d4e2f0;">${escapeHtml(String(row[h] ?? ''))}</td>`).join('') + '</tr>';
+                }
+                sampleHTML += '</tbody></table>';
+            }
+
+            return `
+                <div style="background:#0f1722;padding:16px;border-radius:12px;border:1px solid #2a3a4e;color:#d4e2f0;">
+                    <h2 style="color:#e8edf5;margin-bottom:12px;">📊 Data Dashboard</h2>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:15px;">
+                        <div style="background:#1a2634;padding:10px;border-radius:8px;text-align:center;"><span style="color:#8aa4c0;font-size:12px;">Rows</span><br><strong style="font-size:20px;color:#e8edf5;">${data.total_rows || 0}</strong></div>
+                        <div style="background:#1a2634;padding:10px;border-radius:8px;text-align:center;"><span style="color:#8aa4c0;font-size:12px;">Columns</span><br><strong style="font-size:20px;color:#e8edf5;">${data.total_cols || 0}</strong></div>
+                        <div style="background:#1a2634;padding:10px;border-radius:8px;text-align:center;"><span style="color:#8aa4c0;font-size:12px;">Numeric Cols</span><br><strong style="font-size:20px;color:#e8edf5;">${numCols.length}</strong></div>
+                        <div style="background:#1a2634;padding:10px;border-radius:8px;text-align:center;"><span style="color:#8aa4c0;font-size:12px;">Categorical</span><br><strong style="font-size:20px;color:#e8edf5;">${catCols.length}</strong></div>
+                    </div>
+                    <div style="margin-bottom:10px;"><strong style="color:#e8edf5;">Columns:</strong> ${columnInfo}</div>
+                    ${numericHTML}
+                    ${catHTML}
+                    ${sampleHTML}
+                </div>
+            `;
+        }
+
+// Add a dashboard message (HTML content) to the chat
+        function addDashboardMessage(htmlContent) {
+            const div = document.createElement('div');
+            div.className = 'message bot';
+            div.innerHTML = htmlContent;
             chatMessages.appendChild(div);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
@@ -514,9 +594,25 @@
         });
 
         // Dashboard button
-        document.getElementById('dashboardBtn').addEventListener('click', () => {
-                window.open('/dashboard', '_blank');  // will open the dashboard page
-            });
+        document.getElementById('dashboardBtn').addEventListener('click', async function() {
+    try {
+        showTyping(true);
+        const resp = await fetch('/dashboard-data');
+        const data = await resp.json();
+        showTyping(false);
+        
+        if (resp.ok) {
+            // Format the dashboard data as a nice HTML message
+            const dashboardHTML = generateDashboardHTML(data);
+            addDashboardMessage(dashboardHTML);
+        } else {
+            throw new Error(data.detail || 'Dashboard failed');
+        }
+    } catch (err) {
+        showTyping(false);
+        addMessage(`❌ Dashboard error: ${err.message}`, 'bot');
+    }
+});
 
         // Generate dashboard HTML from data
         function generateDashboardHTML(data) {
