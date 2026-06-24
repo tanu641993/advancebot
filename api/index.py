@@ -128,6 +128,132 @@ class ChatGemini:
 
 llm = ChatGemini(model="gemini-2.5-flash", temperature=0.0, max_output_tokens=2048)
 
+def process_document(file_path: str, ext: str):
+    """Load, clean, chunk, embed, and index a document."""
+    logger.info(f"Processing {file_path} with extension {ext}")
+    try:
+        docs = []
+
+        # ─── CSV ────────────────────────────────────────────
+        if ext == ".csv":
+            import csv
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+            if not rows:
+                raise HTTPException(400, "CSV is empty.")
+            block_size = 20
+            for i in range(0, len(rows), block_size):
+                block = rows[i:i+block_size]
+                text = f"Rows {i+1} to {min(i+block_size, len(rows))}:\n"
+                for row in block:
+                    text += ", ".join(f"{col}: {val}" for col, val in row.items()) + "\n"
+                class Doc:
+                    def __init__(self, content, meta):
+                        self.page_content = content
+                        self.metadata = meta
+                docs.append(Doc(text, {"source": "CSV", "row_start": i+1}))
+            logger.info(f"Created {len(docs)} blocks from CSV.")
+
+        # ─── PDF ────────────────────────────────────────────
+        elif ext == ".pdf":
+            try:
+                docs = PyPDFLoader(file_path=file_path).load()
+            except Exception as e:
+                if "decrypted" in str(e).lower():
+                    logger.warning("PDF encrypted – trying empty password.")
+                    docs = PyPDFLoader(file_path=file_path, password="").load()
+                else:
+                    raise
+
+        # ─── Excel ──────────────────────────────────────────
+        elif ext in (".xlsx", ".xls"):
+            if pd is None:
+                raise HTTPException(400, "Pandas not installed")
+            xls = pd.ExcelFile(file_path)
+            block_size = 20
+            for sheet in xls.sheet_names:
+                df = pd.read_excel(file_path, sheet_name=sheet)
+                if df.empty:
+                    continue
+                for i in range(0, len(df), block_size):
+                    block = df.iloc[i:i+block_size]
+                    text = f"Sheet: {sheet} | Rows {i+2} to {min(i+block_size, len(df))+1}:\n"
+                    for _, row in block.iterrows():
+                        text += ", ".join(f"{col}: {row[col]}" for col in df.columns) + "\n"
+                    class Doc:
+                        def __init__(self, content, meta):
+                            self.page_content = content
+                            self.metadata = meta
+                    docs.append(Doc(text, {"sheet": sheet, "row_start": i+2, "source": "Excel"}))
+            logger.info(f"Created {len(docs)} blocks from Excel.")
+
+        else:
+            raise HTTPException(400, "Unsupported format")
+
+        if not docs:
+            raise HTTPException(400, "No content extracted")
+
+        # ─── Clean ──────────────────────────────────────────
+        for doc in docs:
+            doc.page_content = clean_text(doc.page_content)
+
+        # ─── Split ──────────────────────────────────────────
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=800, chunk_overlap=100
+        )
+        chunks = text_splitter.split_documents(docs)
+        logger.info(f"Split into {len(chunks)} chunks")
+
+        # ─── Deduplicate ────────────────────────────────────
+        chunks = deduplicate_chunks(chunks)
+        logger.info(f"After dedup: {len(chunks)}")
+
+        # ─── Filter only empty ──────────────────────────────
+        chunks = [c for c in chunks if c.page_content.strip() != ""]
+        logger.info(f"After filtering empty: {len(chunks)}")
+
+        if not chunks:
+            raise HTTPException(400, "No valid chunks extracted.")
+
+        # ─── Store and index ──────────────────────────────
+        GLOBAL_STATE["all_chunks"] = [c.page_content for c in chunks]
+        GLOBAL_STATE["chunk_metadata"] = [c.metadata for c in chunks]
+
+        embeddings = GeminiEmbeddings(model="gemini-embedding-2")
+        vectorstore = FAISS.from_documents(chunks, embeddings)
+        GLOBAL_STATE["retriever"] = vectorstore.as_retriever(search_kwargs={"k": 8})
+
+        GLOBAL_STATE["file_hash"] = compute_hash(open(file_path, "rb").read())
+        GLOBAL_STATE["filename"] = Path(file_path).name
+        logger.info(f"Indexed {GLOBAL_STATE['filename']} successfully")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("process_document failed")
+        raise HTTPException(500, f"Processing error: {str(e)}")
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    if not file.filename:
+        raise HTTPException(400, "No file selected")
+    ext = Path(file.filename).suffix.lower()
+    if ext not in (".csv", ".pdf", ".xlsx", ".xls"):
+        raise HTTPException(400, "Only CSV, PDF, or Excel allowed")
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+    try:
+        process_document(tmp_path, ext)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
+    return {"message": "File uploaded and indexed successfully.", "filename": file.filename}
+
 # ─── Helper functions ──────────────────────────────────────────────────────
 
 def compute_hash(b: bytes) -> str:
