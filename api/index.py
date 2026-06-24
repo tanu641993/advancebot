@@ -12,11 +12,8 @@ from typing import List, Optional, Dict, Any
 from collections import deque
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
-from fastapi.responses import HTMLResponse
-from pathlib import Path
 
 from langchain_community.document_loaders import CSVLoader, PyPDFLoader
 from langchain_community.vectorstores import FAISS
@@ -40,8 +37,6 @@ if not GOOGLE_API_KEY:
     raise RuntimeError("Missing GOOGLE_API_KEY")
 
 app = FastAPI(title="Gemini RAG Data API", version="1.0")
-
-
 
 # ─── Helper classes and functions ─────────────────────────────────────────────
 
@@ -145,7 +140,6 @@ def process_document(file_path: str, ext: str):
             with open(file_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 rows = list(reader)
-                GLOBAL_STATE["raw_data"] = rows
             if not rows:
                 raise HTTPException(400, "CSV is empty.")
             GLOBAL_STATE["raw_data"] = rows
@@ -185,7 +179,6 @@ def process_document(file_path: str, ext: str):
                 if df.empty:
                     continue
                 rows = df.to_dict(orient='records')
-            GLOBAL_STATE["raw_data"] = rows
                 all_rows.extend(rows)
                 for i in range(0, len(df), block_size):
                     block = df.iloc[i:i+block_size]
@@ -266,48 +259,13 @@ async def upload_file(file: UploadFile = File(...)):
             pass
     return {"message": "File uploaded and indexed successfully.", "filename": file.filename}
 
-elif ext in (".xlsx", ".xls"):
-    if pd is None:
-        raise HTTPException(400, "Pandas not installed")
-    xls = pd.ExcelFile(file_path)
-    all_rows = []
-    block_size = 20
-    for sheet in xls.sheet_names:
-        df = pd.read_excel(file_path, sheet_name=sheet)
-        if df.empty:
-            continue
-        rows = df.to_dict(orient='records')
-        all_rows.extend(rows)   # collect all rows
-        # ... rest of block creation code ...
-    GLOBAL_STATE["raw_data"] = all_rows   # after loop
-
-@app.post("/query")
-async def query_rag(request: dict):
-    question = request.get("question")
-    if not question:
-        raise HTTPException(400, "Missing question")
-    if GLOBAL_STATE["retriever"] is None:
-        raise HTTPException(400, "No document indexed yet")
-
-    docs = GLOBAL_STATE["retriever"].invoke(question)
-    if not docs:
-        return {"answer": "No relevant information found.", "source_chunks": []}
-
-    context = "\n\n".join([d.page_content for d in docs])
-    source_chunks = [d.page_content[:150] + "..." for d in docs]
-
-    prompt = f"Answer based only on the context:\n\nContext:\n{context}\n\nQuestion: {question}\nAnswer:"
-    answer = llm_invoke(prompt)
-    return {"answer": answer, "source_chunks": source_chunks}
-
+# ✅ CORRECTED /dashboard-data endpoint
 @app.get("/dashboard-data")
 async def get_dashboard_data():
     try:
-        # Check raw data
         if GLOBAL_STATE.get("raw_data") is None or len(GLOBAL_STATE["raw_data"]) == 0:
             raise HTTPException(400, "No data uploaded yet.")
         
-        # Ensure pandas is available
         if pd is None:
             raise HTTPException(500, "Pandas is not installed.")
         
@@ -366,6 +324,24 @@ async def get_dashboard_data():
         logger.exception("Dashboard data error")
         raise HTTPException(500, f"Error processing data: {str(e)}")
 
+@app.post("/query")
+async def query_rag(request: dict):
+    question = request.get("question")
+    if not question:
+        raise HTTPException(400, "Missing question")
+    if GLOBAL_STATE["retriever"] is None:
+        raise HTTPException(400, "No document indexed yet")
+
+    docs = GLOBAL_STATE["retriever"].invoke(question)
+    if not docs:
+        return {"answer": "No relevant information found.", "source_chunks": []}
+
+    context = "\n\n".join([d.page_content for d in docs])
+    source_chunks = [d.page_content[:150] + "..." for d in docs]
+
+    prompt = f"Answer based only on the context:\n\nContext:\n{context}\n\nQuestion: {question}\nAnswer:"
+    answer = llm_invoke(prompt)
+    return {"answer": answer, "source_chunks": source_chunks}
 
 @app.get("/summary")
 async def get_summary():
@@ -455,26 +431,19 @@ def llm_invoke(prompt: str) -> str:
     cache.put(p_hash, result)
     return result
 
-# ─── Keep only the minimal endpoints for now ────────────────────────────────
+# ─── Routes ────────────────────────────────────────────────────────────────
 
 @app.get("/")
 async def home():
-    # Read the HTML template
     try:
         with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
             html_content = f.read()
     except FileNotFoundError:
         return HTMLResponse("<h1>Error: index.html not found</h1>")
     
-    # Get the current filename from global state
     current_file = GLOBAL_STATE.get("filename") or "No document indexed yet"
-    
-    # Replace placeholder in HTML with the actual filename
     html_content = html_content.replace("{{ current_file }}", current_file)
-    
     return HTMLResponse(content=html_content)
-
-
 
 @app.get("/ping")
 async def ping():
