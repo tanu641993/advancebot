@@ -165,6 +165,39 @@ def process_document(file_path: str, ext: str):
                     docs = PyPDFLoader(file_path=file_path, password="").load()
                 else:
                     raise
+        
+        # ─── IMAGE processing ──────────────────────────────────────────
+        elif ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"):
+            from google.genai import types
+            import base64
+
+            # Read image bytes
+            with open(file_path, 'rb') as f:
+                image_bytes = f.read()
+
+            # Create a Gemini client (we already have one, but we can use a fresh one)
+            client = genai.Client(api_key=GOOGLE_API_KEY)
+            # Send image and prompt
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",  # multimodal model
+                contents=[
+                    types.Part.from_bytes(data=image_bytes, mime_type=f"image/{ext[1:]}"),
+                    "Extract all text from this image. If there is no text, describe the image content in detail."
+                ]
+            )
+            text = response.text
+            if not text.strip():
+                raise HTTPException(400, "No text or content extracted from image")
+
+            # Create a document object from the extracted text
+            class Doc:
+                def __init__(self, content, meta):
+                    self.page_content = content
+                    self.metadata = meta
+            docs.append(Doc(text, {"source": "Image", "filename": Path(file_path).name}))
+
+        else:
+            raise HTTPException(400, "Unsupported format")
 
         # ─── Excel ──────────────────────────────────────────
         elif ext in (".xlsx", ".xls"):
@@ -292,8 +325,9 @@ async def upload_file(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(400, "No file selected")
     ext = Path(file.filename).suffix.lower()
-    if ext not in (".csv", ".pdf", ".xlsx", ".xls", ".txt", ".docx", ".doc"):
-        raise HTTPException(400, "Only CSV, PDF, Excel, TXT, or Word files are allowed")
+    if ext not in (".csv", ".pdf", ".xlsx", ".xls", ".txt", ".docx", ".doc",
+                   ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"):
+        raise HTTPException(400, "Unsupported file type")
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         content = await file.read()
         tmp.write(content)
