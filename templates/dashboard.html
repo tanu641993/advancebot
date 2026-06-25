@@ -108,6 +108,13 @@
             color: #1a73e8;
             text-decoration: none;
         }
+        .chart-placeholder {
+            text-align: center;
+            color: #888;
+            padding: 40px 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
         @media (max-width: 768px) {
             .content-grid { grid-template-columns: 1fr; }
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -153,14 +160,14 @@
             <div id="sampleData"></div>
         </div>
 
-        <!-- Chart section – only shown if numeric columns exist -->
+        <!-- Chart section – conditionally shown -->
         <div id="chartSection" style="display: none;">
             <div class="chart-container">
                 <h3 id="chartTitle" style="text-align:center;margin-bottom:10px;">Bar Chart</h3>
                 <canvas id="myChart"></canvas>
             </div>
         </div>
-        <div id="noNumericMsg" style="display: none; text-align:center; margin:20px 0; color:#888;">
+        <div id="noNumericMsg" style="display: none;" class="chart-placeholder">
             ℹ️ No numeric columns found – chart not available.
         </div>
 
@@ -191,13 +198,16 @@
         document.getElementById('fileNameDisplay').textContent = `File: ${data.filename || 'Unknown'}`;
 
         // Stats grid
+        const numCols = Object.keys(data.numeric_summary || {});
+        const catCols = Object.keys(data.categorical_summary || {});
         const stats = [
             { icon: '📄', label: 'Total Rows', value: data.total_rows || 0 },
             { icon: '🔢', label: 'Total Columns', value: data.total_cols || 0 },
-            { icon: '📊', label: 'Numeric Columns', value: Object.keys(data.numeric_summary || {}).length },
-            { icon: '🏷️', label: 'Categorical Columns', value: Object.keys(data.categorical_summary || {}).length }
+            { icon: '📊', label: 'Numeric Columns', value: numCols.length },
+            { icon: '🏷️', label: 'Categorical Columns', value: catCols.length }
         ];
         const grid = document.getElementById('statsGrid');
+        grid.innerHTML = '';
         stats.forEach(s => {
             const div = document.createElement('div');
             div.className = 'stat-card';
@@ -227,7 +237,6 @@
 
         // Numeric summary
         const numDiv = document.getElementById('numericSummary');
-        const numCols = Object.keys(data.numeric_summary || {});
         if (numCols.length > 0) {
             let numHtml = '<table><tr><th>Column</th><th>Mean</th><th>Min</th><th>Max</th><th>Std</th><th>Count</th></tr>';
             for (const col of numCols) {
@@ -242,7 +251,6 @@
 
         // Categorical summary
         const catDiv = document.getElementById('categoricalSummary');
-        const catCols = Object.keys(data.categorical_summary || {});
         if (catCols.length > 0) {
             let catHtml = '<table><tr><th>Column</th><th>Unique</th><th>Top Values</th></tr>';
             for (const col of catCols) {
@@ -256,7 +264,7 @@
             catDiv.innerHTML = '<p class="no-data-msg">No categorical columns found.</p>';
         }
 
-        // Sample data (first 10 rows)
+        // Sample data
         const sampleDiv = document.getElementById('sampleData');
         if (data.sample && data.sample.length > 0) {
             const headers = Object.keys(data.sample[0]);
@@ -275,53 +283,60 @@
         const noNumericMsg = document.getElementById('noNumericMsg');
 
         if (numCols.length > 0) {
-            // Show chart section, hide message
-            chartSection.style.display = 'block';
-            noNumericMsg.style.display = 'none';
-
+            // Check if the sample data actually has numeric values for the first numeric column
             const col = numCols[0];
-            document.getElementById('chartTitle').textContent = `Bar Chart: ${col} (first 10 rows)`;
-
-            // Extract numeric values from sample
-            let values = [];
-            if (data.sample) {
-                values = data.sample.map(row => {
-                    const v = row[col];
-                    return (typeof v === 'number' && !isNaN(v)) ? v : null;
-                }).filter(v => v !== null);
-            }
-            // If not enough values, use all rows from numeric summary? We'll just use the sample.
-            if (values.length === 0) {
-                // fallback: use 10 zeros or something? Better show a message
-                document.getElementById('chartTitle').textContent = `Bar Chart: ${col} (no numeric values in sample)`;
-                values = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-            }
-            const ctx = document.getElementById('myChart').getContext('2d');
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: values.map((_, i) => `Row ${i+1}`),
-                    datasets: [{
-                        label: col,
-                        data: values,
-                        backgroundColor: 'rgba(26, 115, 232, 0.6)',
-                        borderColor: 'rgba(26, 115, 232, 1)',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        y: { beginAtZero: true }
+            let hasNumericValues = false;
+            if (data.sample && data.sample.length > 0) {
+                for (const row of data.sample) {
+                    if (row[col] !== undefined && row[col] !== null && !isNaN(parseFloat(row[col]))) {
+                        hasNumericValues = true;
+                        break;
                     }
                 }
-            });
+            }
+
+            if (hasNumericValues) {
+                // Show chart, hide message
+                chartSection.style.display = 'block';
+                noNumericMsg.style.display = 'none';
+
+                document.getElementById('chartTitle').textContent = `Bar Chart: ${col} (first 10 rows)`;
+
+                // Extract numeric values from sample
+                const values = data.sample.map(row => parseFloat(row[col])).filter(v => !isNaN(v));
+                const ctx = document.getElementById('myChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: values.map((_, i) => `Row ${i+1}`),
+                        datasets: [{
+                            label: col,
+                            data: values,
+                            backgroundColor: 'rgba(26, 115, 232, 0.6)',
+                            borderColor: 'rgba(26, 115, 232, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            y: { beginAtZero: true }
+                        }
+                    }
+                });
+            } else {
+                // Numeric column exists but sample has no numeric values (maybe all null/empty)
+                chartSection.style.display = 'none';
+                noNumericMsg.style.display = 'block';
+                noNumericMsg.textContent = `ℹ️ Column "${col}" is numeric but sample data has no numeric values – chart not available.`;
+            }
         } else {
             chartSection.style.display = 'none';
             noNumericMsg.style.display = 'block';
+            noNumericMsg.textContent = 'ℹ️ No numeric columns found – chart not available.';
         }
     }
 
