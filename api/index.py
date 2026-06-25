@@ -382,22 +382,24 @@ async def get_summary():
 
     full_text = "\n\n".join(GLOBAL_STATE["all_chunks"])
 
-    # ─── For short documents ──────────────────────────────────────────
+    # ─── Short documents ──────────────────────────────────────────
     if len(full_text) < 10000:
         prompt = f"""
-        Provide a comprehensive summary of the document in a numbered list (1., 2., 3., ...).
-        Each bullet point should be a clear, concise key takeaway.
-        If there are logical sections, group points under section headers, but keep the main structure as a numbered list.
+        Provide a comprehensive summary of the document as a numbered list.
+        Each point must be on its own line, starting with a number (1., 2., 3., ...).
+        Do not merge points into paragraphs. Use clear, concise language.
 
         Document:
         {full_text}
 
-        Summary (numbered list):
+        Summary (numbered list, one point per line):
         """
         summary = llm_invoke(prompt)
+        # Optional: ensure newlines after each number (post‑processing)
+        summary = re.sub(r'(\d+\.\s*)', r'\n\1', summary).strip()
         return {"summary": summary}
 
-    # ─── For long documents – Map‑Reduce ──────────────────────────────
+    # ─── Long documents – Map‑Reduce ──────────────────────────────
     segment_size = 2500
     overlap = 300
     segments = []
@@ -410,29 +412,32 @@ async def get_summary():
     segment_summaries = []
     for i, seg in enumerate(segments):
         prompt = f"""
-        Summarize this document section (part {i+1}/{len(segments)}) in a numbered list of key points (1., 2., 3., ...).
-        Focus on the main ideas and important details.
+        Summarize this section (part {i+1}/{len(segments)}) as a numbered list.
+        Each point must be on a new line, starting with a number (1., 2., ...).
+        Keep points clear and standalone.
 
         Section:
         {seg}
 
-        Bullet summary (numbered list):
+        Numbered list:
         """
         seg_summary = llm_invoke(prompt)
         segment_summaries.append(seg_summary)
 
     combined = "\n\n".join(segment_summaries)
     final_prompt = f"""
-    Combine the following section summaries into one cohesive overall summary.
-    Present the final summary as a single numbered list (1., 2., 3., …) without duplicating points.
-    Ensure logical order and clarity.
+    Combine the following section summaries into one final numbered list.
+    Each point must be on its own line, starting with a number (1., 2., 3., ...).
+    Avoid duplicates; keep the logical order.
 
     Section summaries:
     {combined}
 
-    Overall summary (numbered list):
+    Final summary (numbered list, one point per line):
     """
     final_summary = llm_invoke(final_prompt)
+    # Post‑process to ensure newlines
+    final_summary = re.sub(r'(\d+\.\s*)', r'\n\1', final_summary).strip()
     return {"summary": final_summary}
 
 @app.post("/reset")
