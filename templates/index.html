@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gemini RAG Assistant</title>
+    <title>InsightBot – RAG Chat</title>
     <style>
         * {
             margin: 0;
@@ -135,11 +135,11 @@
         }
 
         .upload-area .reset-btn {
-            background: #2b4a6e;       /* same as upload button */
+            background: #2b4a6e;
             color: white;
-            border: none;              /* remove border */
-            padding: 8px 18px;         /* consistent padding */
-            border-radius: 30px;       /* rounded pill shape */
+            border: none;
+            padding: 8px 18px;
+            border-radius: 30px;
             font-size: 14px;
             font-weight: 500;
             cursor: pointer;
@@ -150,9 +150,11 @@
         }
 
         .upload-area .reset-btn:hover {
-            background: #3d2c2c;
-            border-color: #f87171;
-            color: #f87171;
+            background: #3b5f8a;
+        }
+
+        .upload-area .reset-btn:active {
+            transform: scale(0.96);
         }
 
         /* Chat messages */
@@ -176,7 +178,7 @@
             background: #2b4a6e;
             border-radius: 8px;
         }
-        
+
         .message {
             max-width: 80%;
             padding: 12px 18px;
@@ -295,10 +297,6 @@
             cursor: not-allowed;
         }
 
-        .resetBtn:hover {
-            background: #dc3545;   /* red */
-        }
-
         /* Animations */
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(6px); }
@@ -344,7 +342,7 @@
     <!-- Chat Messages -->
     <div class="chat-messages" id="chatMessages">
         <div class="message bot">
-            👋 Hello! Upload a CSV or PDF, then ask me questions about your data.
+            👋 Hello! Upload a CSV, PDF, or Excel file, then ask me questions about your data.
         </div>
     </div>
 
@@ -388,80 +386,6 @@
             const div = document.createElement('div');
             div.className = `message ${sender}`;
             div.textContent = text;
-            chatMessages.appendChild(div);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        // Generate a formatted dashboard HTML string from data
-        function generateDashboardHTML(data) {
-            // Build column info
-            let columnInfo = '<ul>';
-            for (const [col, dtype] of Object.entries(data.dtypes || {})) {
-                const missing = data.missing_per_col?.[col] || 0;
-                columnInfo += `<li><strong>${escapeHtml(col)}</strong> (${dtype}) – missing: ${missing}</li>`;
-            }
-            columnInfo += '</ul>';
-
-            // Numeric summary
-            let numericHTML = '';
-            const numCols = Object.keys(data.numeric_summary || {});
-            if (numCols.length > 0) {
-                numericHTML = '<h3>📊 Numeric Columns</h3><ul>';
-                for (const col of numCols) {
-                    const stats = data.numeric_summary[col];
-                    numericHTML += `<li><strong>${escapeHtml(col)}</strong>: mean=${stats.mean?.toFixed(2)}, min=${stats.min}, max=${stats.max}, std=${stats.std?.toFixed(2)}</li>`;
-                }
-                numericHTML += '</ul>';
-            }
-
-            // Categorical summary
-            let catHTML = '';
-            const catCols = Object.keys(data.categorical_summary || {});
-            if (catCols.length > 0) {
-                catHTML = '<h3>🏷️ Categorical Columns (Top 5 values)</h3><ul>';
-                for (const col of catCols) {
-                    const info = data.categorical_summary[col];
-                    catHTML += `<li><strong>${escapeHtml(col)}</strong> (${info.unique_count} unique): ${Object.entries(info.top_values || {}).map(([v, c]) => `${escapeHtml(v)} (${c})`).join(', ')}</li>`;
-                }
-                catHTML += '</ul>';
-            }
-
-            // Sample data (first 5 rows) as a table
-            let sampleHTML = '';
-            if (data.sample && data.sample.length > 0) {
-                const headers = Object.keys(data.sample[0]);
-                sampleHTML = '<h3>📋 Sample Data (first 5 rows)</h3><table style="width:100%;border-collapse:collapse;font-size:13px;">';
-                sampleHTML += '<thead><tr>' + headers.map(h => `<th style="border:1px solid #2a3a4e;padding:6px;background:#1a2634;color:#e8edf5;">${escapeHtml(h)}</th>`).join('') + '</tr></thead>';
-                sampleHTML += '<tbody>';
-                for (let i = 0; i < Math.min(5, data.sample.length); i++) {
-                    const row = data.sample[i];
-                    sampleHTML += '<tr>' + headers.map(h => `<td style="border:1px solid #2a3a4e;padding:6px;color:#d4e2f0;">${escapeHtml(String(row[h] ?? ''))}</td>`).join('') + '</tr>';
-                }
-                sampleHTML += '</tbody></table>';
-            }
-
-            return `
-                <div style="background:#0f1722;padding:16px;border-radius:12px;border:1px solid #2a3a4e;color:#d4e2f0;">
-                    <h2 style="color:#e8edf5;margin-bottom:12px;">📊 Data Dashboard</h2>
-                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:15px;">
-                        <div style="background:#1a2634;padding:10px;border-radius:8px;text-align:center;"><span style="color:#8aa4c0;font-size:12px;">Rows</span><br><strong style="font-size:20px;color:#e8edf5;">${data.total_rows || 0}</strong></div>
-                        <div style="background:#1a2634;padding:10px;border-radius:8px;text-align:center;"><span style="color:#8aa4c0;font-size:12px;">Columns</span><br><strong style="font-size:20px;color:#e8edf5;">${data.total_cols || 0}</strong></div>
-                        <div style="background:#1a2634;padding:10px;border-radius:8px;text-align:center;"><span style="color:#8aa4c0;font-size:12px;">Numeric Cols</span><br><strong style="font-size:20px;color:#e8edf5;">${numCols.length}</strong></div>
-                        <div style="background:#1a2634;padding:10px;border-radius:8px;text-align:center;"><span style="color:#8aa4c0;font-size:12px;">Categorical</span><br><strong style="font-size:20px;color:#e8edf5;">${catCols.length}</strong></div>
-                    </div>
-                    <div style="margin-bottom:10px;"><strong style="color:#e8edf5;">Columns:</strong> ${columnInfo}</div>
-                    ${numericHTML}
-                    ${catHTML}
-                    ${sampleHTML}
-                </div>
-            `;
-        }
-
-// Add a dashboard message (HTML content) to the chat
-        function addDashboardMessage(htmlContent) {
-            const div = document.createElement('div');
-            div.className = 'message bot';
-            div.innerHTML = htmlContent;
             chatMessages.appendChild(div);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
@@ -511,15 +435,12 @@
                 if (resp.ok) {
                     updateFileStatus(file.name);
                     addMessage(`✅ File "${file.name}" uploaded and indexing started.`, 'bot');
-                    // Force status update after processing (poll or rely on backend)
-                    // We'll keep the UI optimistic; if indexing fails, user will see error on query.
                 } else {
                     throw new Error(data.detail || 'Upload failed');
                 }
             } catch (err) {
                 addMessage(`❌ Upload error: ${err.message}`, 'bot');
             }
-            // Clear the input so same file can be re-uploaded
             fileInput.value = '';
         });
 
@@ -541,7 +462,6 @@
                 const data = await resp.json();
                 if (resp.ok) {
                     addBotMessageWithSources(data.answer, data.source_chunks || []);
-                    // Update file status in case it changed
                     updateFileStatus(fileNameDisplay.textContent);
                 } else {
                     throw new Error(data.detail || 'Query failed');
@@ -565,7 +485,6 @@
                 const resp = await fetch('/reset', { method: 'POST' });
                 if (resp.ok) {
                     updateFileStatus(null);
-                    // Clear chat except welcome
                     chatMessages.innerHTML = `<div class="message bot">🧹 State reset. Upload a new file to start.</div>`;
                     uploadedFileName.textContent = 'No file selected';
                     addMessage('State cleared successfully.', 'bot');
@@ -578,74 +497,40 @@
             }
         });
 
-        // Summary button
+        // --- Summary (in‑chat) ---
         document.getElementById('summaryBtn').addEventListener('click', async function() {
             try {
+                showTyping(true);
                 const resp = await fetch('/summary');
                 const data = await resp.json();
+                showTyping(false);
                 if (resp.ok) {
                     addMessage(`📝 Summary:\n\n${data.summary}`, 'bot');
                 } else {
                     throw new Error(data.detail || 'Summary failed');
                 }
             } catch (err) {
+                showTyping(false);
                 addMessage(`❌ Summary error: ${err.message}`, 'bot');
             }
         });
 
-        // Dashboard button
-        document.getElementById('dashboard-btn').addEventListener('click', async function() {
-    try {
-        showTyping(true);
-        const resp = await fetch('/dashboard-data');
-        const data = await resp.json();
-        showTyping(false);
-        
-        if (resp.ok) {
-            // Format the dashboard data as a nice HTML message
-            const dashboardHTML = generateDashboardHTML(data);
-            addDashboardMessage(dashboardHTML);
-        } else {
-            throw new Error(data.detail || 'Dashboard failed');
-        }
-    } catch (err) {
-        showTyping(false);
-        addMessage(`❌ Dashboard error: ${err.message}`, 'bot');
-    }
-});
+        // --- Dashboard (opens in new tab) ---
+        document.getElementById('dashboard-btn').addEventListener('click', function() {
+            window.open('/dashboard', '_blank');
+        });
 
-
-        // Escape HTML to prevent XSS
-        function escapeHtml(text) {
-            if (text === undefined || text === null) return '';
-            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
-            return String(text).replace(/[&<>"']/g, m => map[m]);
-        }
-
-        // --- Initial status ---
-        // The backend sends "current_file" via the template replacement.
-        // We'll grab the status from the fileStatus element initially set by backend.
-        // But we can also try to fetch /health to get status.
+        // --- Initial health check (optional) ---
         async function fetchInitialStatus() {
             try {
                 const resp = await fetch('/health');
                 const data = await resp.json();
                 if (data.file_indexed) {
-                    // We don't have the filename from /health, but we can use the badge text.
-                    // We'll let the user see the badge from the template.
-                    // Actually the badge in the header is static from template.
-                    // We'll just leave it; the upload/query will update it.
+                    // we could update the status badge if needed
                 }
             } catch (_) { /* ignore */ }
         }
         fetchInitialStatus();
-
-        // Update file status if the backend gave a filename via template replacement
-        // The template uses {{ current_file }} so we can set it via a meta tag or inline script.
-        // We'll rely on the backend to replace the file status area directly.
-        // But our template didn't have a placeholder for that, so we'll keep the default.
-        // Users can manually trigger a /health call to update.
-        // We'll just rely on upload/query to update the display.
 
     })();
 </script>
