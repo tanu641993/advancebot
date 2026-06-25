@@ -484,19 +484,19 @@ async def query_rag(request: dict):
     prompt = f"""
     You are a helpful assistant. Answer the user's question based ONLY on the provided context.
 
-    Before giving the final answer, think step‑by‑step and list your reasoning as bullet points (each on a new line, starting with "- ").
+    IMPORTANT: Before giving the final answer, you MUST think step‑by‑step and list your reasoning as bullet points (each on a new line, starting with "- ").
 
     After your reasoning, provide the final answer.
 
-    Output format exactly as follows:
+    Output format MUST be exactly as follows (do not change the labels):
 
     REASONING:
-    - (your first reasoning point)
-    - (your second reasoning point)
+    - (first reasoning point)
+    - (second reasoning point)
     ...
 
     ANSWER:
-    (your final answer based solely on the context)
+    (your final answer)
 
     Context:
     {context}
@@ -505,9 +505,14 @@ async def query_rag(request: dict):
     """
     raw = llm_invoke(prompt)
 
-    # Parse reasoning and answer
+    # Log raw response for debugging
+    logger.info(f"Raw response from Gemini: {raw[:500]}...")  # first 500 chars
+
+    # ─── Parse reasoning and answer ──────────────────────────────
     reasoning = ""
     answer = raw
+
+    # Try standard labels
     if "REASONING:" in raw and "ANSWER:" in raw:
         parts = raw.split("ANSWER:")
         reasoning = parts[0].replace("REASONING:", "").strip()
@@ -517,15 +522,19 @@ async def query_rag(request: dict):
         reasoning = parts[0].replace("Reasoning:", "").strip()
         answer = parts[1].strip()
     else:
-        # Fallback: try regex
+        # Try regex fallback (case‑insensitive)
         import re
-        match = re.search(r'reasoning:?\s*(.*?)\s*answer:?\s*(.*)', raw, re.IGNORECASE | re.DOTALL)
+        match = re.search(r'(?:reasoning|REASONING):?\s*(.*?)\s*(?:answer|ANSWER):?\s*(.*)', raw, re.DOTALL)
         if match:
             reasoning = match.group(1).strip()
             answer = match.group(2).strip()
         else:
-            # If no split, put everything in answer
+            # Last resort: if no split, assume the entire response is the answer
             answer = raw
+
+    # If reasoning is empty, we can still show a placeholder
+    if not reasoning:
+        reasoning = "No explicit reasoning provided, but here is the answer."
 
     elapsed = time.time() - start_time
     thought_seconds = round(elapsed)

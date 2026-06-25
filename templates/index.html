@@ -316,13 +316,15 @@
         div.className = 'message bot';
         let html = '';
 
+        // Always show the thought block, even if reasoning is empty
+        html += `<div style="background:#0a121e;padding:12px 16px;border-radius:8px;margin-bottom:10px;border-left:3px solid #4a8bc2;">`;
+        html += `<div style="color:#8aa4c0;font-size:13px;margin-bottom:6px;">🧠 Thought for ${thoughtSeconds || 'a few'} seconds</div>`;
         if (reasoning) {
-            html += `<div style="background:#0a121e;padding:12px 16px;border-radius:8px;margin-bottom:10px;border-left:3px solid #4a8bc2;">`;
-            html += `<div style="color:#8aa4c0;font-size:13px;margin-bottom:6px;">🧠 Thought for ${thoughtSeconds || 'a few'} seconds</div>`;
-            // Render reasoning as plain text (Gemini already uses "- " bullets)
             html += `<div style="color:#b0c8e0;font-size:14px;white-space:pre-wrap;">${reasoning}</div>`;
-            html += `</div>`;
+        } else {
+            html += `<div style="color:#666;font-size:14px;font-style:italic;">Reasoning not available.</div>`;
         }
+        html += `</div>`;
 
         html += `<div>${answer}</div>`;
 
