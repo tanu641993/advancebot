@@ -311,17 +311,21 @@
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
-    function addBotMessageWithReasoning(answer, reasoning, sources) {
+    function addBotMessageWithReasoning(answer, reasoning, thoughtSeconds, sources) {
         const div = document.createElement('div');
         div.className = 'message bot';
         let html = '';
+
         if (reasoning) {
-            html += `<details style="margin-bottom:8px;cursor:pointer;">
-                <summary style="color:#8aa4c0;font-size:13px;">💡 Reasoning</summary>
-                <div style="background:#0a121e;padding:8px 12px;border-radius:6px;margin-top:6px;font-size:14px;color:#b0c8e0;">${reasoning}</div>
-            </details>`;
+            html += `<div style="background:#0a121e;padding:12px 16px;border-radius:8px;margin-bottom:10px;border-left:3px solid #4a8bc2;">`;
+            html += `<div style="color:#8aa4c0;font-size:13px;margin-bottom:6px;">🧠 Thought for ${thoughtSeconds || 'a few'} seconds</div>`;
+            // Render reasoning as plain text (Gemini already uses "- " bullets)
+            html += `<div style="color:#b0c8e0;font-size:14px;white-space:pre-wrap;">${reasoning}</div>`;
+            html += `</div>`;
         }
+
         html += `<div>${answer}</div>`;
+
         if (sources && sources.length) {
             const srcDiv = document.createElement('div');
             srcDiv.className = 'sources';
@@ -329,6 +333,7 @@
             srcDiv.innerHTML = '📄 Sources: ' + sources.map(s => `<span style="background:#2a3a4e;padding:2px 8px;border-radius:12px;margin:2px;display:inline-block;">${s}</span>`).join(' ');
             div.appendChild(srcDiv);
         }
+
         div.innerHTML = html;
         chatMessages.appendChild(div);
         chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -389,7 +394,12 @@
             });
             const data = await resp.json();
             if (resp.ok) {
-                addBotMessageWithReasoning(data.answer, data.reasoning, data.source_chunks || []);
+                addBotMessageWithReasoning(
+                    data.answer,
+                    data.reasoning,
+                    data.thought_seconds,
+                    data.source_chunks || []
+                );
             } else {
                 throw new Error(data.detail || 'Query failed');
             }

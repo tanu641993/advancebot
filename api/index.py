@@ -465,6 +465,9 @@ async def get_dashboard_data():
 
 @app.post("/query")
 async def query_rag(request: dict):
+    import time
+    start_time = time.time()
+
     question = request.get("question")
     if not question:
         raise HTTPException(400, "Missing question")
@@ -481,22 +484,30 @@ async def query_rag(request: dict):
     prompt = f"""
     You are a helpful assistant. Answer the user's question based ONLY on the provided context.
 
-    First, think step‑by‑step about how to answer the question. Then produce the final answer.
+    Before giving the final answer, think step‑by‑step and list your reasoning as bullet points (each on a new line, starting with "- ").
+
+    After your reasoning, provide the final answer.
+
+    Output format exactly as follows:
+
+    REASONING:
+    - (your first reasoning point)
+    - (your second reasoning point)
+    ...
+
+    ANSWER:
+    (your final answer based solely on the context)
 
     Context:
     {context}
 
     Question: {question}
-
-    Output format:
-    REASONING: (your step‑by‑step reasoning, 2‑4 sentences)
-    ANSWER: (your final answer based solely on the context)
     """
     raw = llm_invoke(prompt)
 
+    # Parse reasoning and answer
     reasoning = ""
     answer = raw
-
     if "REASONING:" in raw and "ANSWER:" in raw:
         parts = raw.split("ANSWER:")
         reasoning = parts[0].replace("REASONING:", "").strip()
@@ -506,18 +517,23 @@ async def query_rag(request: dict):
         reasoning = parts[0].replace("Reasoning:", "").strip()
         answer = parts[1].strip()
     else:
-        # Try regex fallback
+        # Fallback: try regex
         import re
-        match = re.search(r'(?:reasoning|REASONING):?\s*(.*?)\s*(?:answer|ANSWER):?\s*(.*)', raw, re.DOTALL)
+        match = re.search(r'reasoning:?\s*(.*?)\s*answer:?\s*(.*)', raw, re.IGNORECASE | re.DOTALL)
         if match:
             reasoning = match.group(1).strip()
             answer = match.group(2).strip()
+        else:
+            # If no split, put everything in answer
+            answer = raw
 
-    logger.info(f"Reasoning: {reasoning[:100] if reasoning else 'None'}")
+    elapsed = time.time() - start_time
+    thought_seconds = round(elapsed)
 
     return {
         "answer": answer,
         "reasoning": reasoning,
+        "thought_seconds": thought_seconds,
         "source_chunks": source_chunks
     }
 
