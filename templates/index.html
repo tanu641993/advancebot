@@ -18,6 +18,15 @@
             margin: 0;
         }
 
+        .typing-indicator span:first-child {
+            font-weight: 500;
+            color: #d4e2f0;
+        }
+        .typing-indicator span:not(:first-child) {
+            animation: pulse 1.4s infinite;
+            font-size: 18px;
+        }
+
         .chat-container {
             width: 100%;
             height: 100vh;
@@ -259,6 +268,7 @@
 
     <!-- Typing Indicator -->
     <div class="typing-indicator" id="typingIndicator" style="display: none; margin: 0 24px 8px;">
+        <span>Thinking</span>
         <span>●</span><span>●</span><span>●</span>
     </div>
 

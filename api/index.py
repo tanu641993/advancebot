@@ -494,13 +494,26 @@ async def query_rag(request: dict):
     """
     raw = llm_invoke(prompt)
 
-    # Split reasoning and answer
     reasoning = ""
     answer = raw
+
     if "REASONING:" in raw and "ANSWER:" in raw:
         parts = raw.split("ANSWER:")
         reasoning = parts[0].replace("REASONING:", "").strip()
         answer = parts[1].strip()
+    elif "Reasoning:" in raw and "Answer:" in raw:
+        parts = raw.split("Answer:")
+        reasoning = parts[0].replace("Reasoning:", "").strip()
+        answer = parts[1].strip()
+    else:
+        # Try regex fallback
+        import re
+        match = re.search(r'(?:reasoning|REASONING):?\s*(.*?)\s*(?:answer|ANSWER):?\s*(.*)', raw, re.DOTALL)
+        if match:
+            reasoning = match.group(1).strip()
+            answer = match.group(2).strip()
+
+    logger.info(f"Reasoning: {reasoning[:100] if reasoning else 'None'}")
 
     return {
         "answer": answer,
