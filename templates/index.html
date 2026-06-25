@@ -5,11 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>InsightBot – RAG Chat</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -32,6 +28,7 @@
             border: none;
             border-radius: 0;
             box-shadow: none;
+            position: relative;
         }
 
         /* Header */
@@ -44,34 +41,10 @@
             align-items: center;
             flex-shrink: 0;
         }
-
-        .header-left {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .header-left .icon {
-            font-size: 24px;
-        }
-
-        .header-left h1 {
-            font-size: 18px;
-            font-weight: 600;
-            color: #e8edf5;
-            letter-spacing: -0.3px;
-        }
-
-        .header-left .badge {
-            background: #2b4a6e;
-            color: #9bc9ff;
-            font-size: 11px;
-            padding: 2px 10px;
-            border-radius: 30px;
-            font-weight: 500;
-            margin-left: 8px;
-        }
-
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .header-left .icon { font-size: 24px; }
+        .header-left h1 { font-size: 18px; font-weight: 600; color: #e8edf5; letter-spacing: -0.3px; }
+        .header-left .badge { background: #2b4a6e; color: #9bc9ff; font-size: 11px; padding: 2px 10px; border-radius: 30px; font-weight: 500; margin-left: 8px; }
         .file-status {
             font-size: 13px;
             color: #9bb4d0;
@@ -83,13 +56,7 @@
             align-items: center;
             gap: 8px;
         }
-
-        .file-status .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            display: inline-block;
-        }
+        .file-status .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
         .dot.indexed { background: #4caf84; }
         .dot.none { background: #f87171; }
 
@@ -104,7 +71,6 @@
             gap: 16px;
             flex-wrap: wrap;
         }
-
         .upload-area label {
             background: #2b4a6e;
             color: white;
@@ -118,22 +84,9 @@
             align-items: center;
             gap: 8px;
         }
-
-        .upload-area label:hover {
-            background: #3b5f8a;
-        }
-
-        .upload-area input[type="file"] {
-            display: none;
-        }
-
-        .upload-area .file-name {
-            color: #b0c8e0;
-            font-size: 14px;
-            flex: 1;
-            min-width: 120px;
-        }
-
+        .upload-area label:hover { background: #3b5f8a; }
+        .upload-area input[type="file"] { display: none; }
+        .upload-area .file-name { color: #b0c8e0; font-size: 14px; flex: 1; min-width: 120px; }
         .upload-area .reset-btn {
             background: #2b4a6e;
             color: white;
@@ -148,14 +101,8 @@
             align-items: center;
             gap: 6px;
         }
-
-        .upload-area .reset-btn:hover {
-            background: #3b5f8a;
-        }
-
-        .upload-area .reset-btn:active {
-            transform: scale(0.96);
-        }
+        .upload-area .reset-btn:hover { background: #3b5f8a; }
+        .upload-area .reset-btn:active { transform: scale(0.96); }
 
         /* Chat messages */
         .chat-messages {
@@ -167,17 +114,9 @@
             gap: 12px;
             background: #0f1722;
         }
-
-        .chat-messages::-webkit-scrollbar {
-            width: 5px;
-        }
-        .chat-messages::-webkit-scrollbar-track {
-            background: #1a2634;
-        }
-        .chat-messages::-webkit-scrollbar-thumb {
-            background: #2b4a6e;
-            border-radius: 8px;
-        }
+        .chat-messages::-webkit-scrollbar { width: 5px; }
+        .chat-messages::-webkit-scrollbar-track { background: #1a2634; }
+        .chat-messages::-webkit-scrollbar-thumb { background: #2b4a6e; border-radius: 8px; }
 
         .message {
             max-width: 80%;
@@ -188,33 +127,10 @@
             word-wrap: break-word;
             animation: fadeIn 0.3s ease;
         }
-
-        .message.user {
-            background: #2b4a6e;
-            color: #e8edf5;
-            align-self: flex-end;
-            border-bottom-right-radius: 4px;
-        }
-
-        .message.bot {
-            background: #1e2c3e;
-            color: #d4e2f0;
-            align-self: flex-start;
-            border-bottom-left-radius: 4px;
-            border: 1px solid #2a3a4e;
-        }
-
-        .message .sources {
-            font-size: 12px;
-            color: #8aa4c0;
-            margin-top: 8px;
-            border-top: 1px solid #2a3a4e;
-            padding-top: 8px;
-            display: none;
-        }
-        .message.bot .sources {
-            display: block;
-        }
+        .message.user { background: #2b4a6e; color: #e8edf5; align-self: flex-end; border-bottom-right-radius: 4px; }
+        .message.bot { background: #1e2c3e; color: #d4e2f0; align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid #2a3a4e; }
+        .message .sources { font-size: 12px; color: #8aa4c0; margin-top: 8px; border-top: 1px solid #2a3a4e; padding-top: 8px; display: none; }
+        .message.bot .sources { display: block; }
 
         .typing-indicator {
             align-self: flex-start;
@@ -229,17 +145,10 @@
             align-items: center;
             gap: 6px;
         }
-
-        .typing-indicator span {
-            animation: pulse 1.4s infinite;
-        }
+        .typing-indicator span { animation: pulse 1.4s infinite; }
         .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
         .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
-
-        @keyframes pulse {
-            0%, 60%, 100% { opacity: 0.3; transform: scale(0.9); }
-            30% { opacity: 1; transform: scale(1.2); }
-        }
+        @keyframes pulse { 0%,60%,100% { opacity:0.3; transform:scale(0.9); } 30% { opacity:1; transform:scale(1.2); } }
 
         /* Input area */
         .input-area {
@@ -250,7 +159,6 @@
             gap: 12px;
             flex-shrink: 0;
         }
-
         .input-area input {
             flex: 1;
             padding: 12px 18px;
@@ -262,16 +170,8 @@
             outline: none;
             transition: border 0.2s;
         }
-
-        .input-area input::placeholder {
-            color: #5a7290;
-        }
-
-        .input-area input:focus {
-            border-color: #4a8bc2;
-            box-shadow: 0 0 0 3px rgba(74, 139, 194, 0.2);
-        }
-
+        .input-area input::placeholder { color: #5a7290; }
+        .input-area input:focus { border-color: #4a8bc2; box-shadow: 0 0 0 3px rgba(74,139,194,0.2); }
         .input-area button {
             background: #2b4a6e;
             color: white;
@@ -283,27 +183,32 @@
             cursor: pointer;
             transition: background 0.2s, transform 0.1s;
         }
+        .input-area button:hover { background: #3b5f8a; }
+        .input-area button:active { transform: scale(0.96); }
+        .input-area button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        .input-area button:hover {
-            background: #3b5f8a;
+        /* Drop zone overlay */
+        #dropZone {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            backdrop-filter: blur(4px);
+            flex-direction: column;
+            gap: 20px;
+            pointer-events: none;
         }
+        #dropZone.show { display: flex !important; }
+        #dropZone .sub { font-size: 16px; opacity: 0.7; }
 
-        .input-area button:active {
-            transform: scale(0.96);
-        }
-
-        .input-area button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        /* Animations */
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(6px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Responsive */
+        @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
         @media (max-width: 600px) {
             .header { flex-wrap: wrap; gap: 8px; }
             .file-status { font-size: 12px; padding: 2px 10px; }
@@ -315,6 +220,12 @@
 <body>
 
 <div class="chat-container">
+
+    <!-- Drop Zone Overlay -->
+    <div id="dropZone">
+        <span>📁 Drop your file here</span>
+        <span class="sub">Supported: CSV, PDF, Excel, TXT, DOCX, Images</span>
+    </div>
 
     <!-- Header -->
     <div class="header">
@@ -331,7 +242,7 @@
 
     <!-- Upload & Controls -->
     <div class="upload-area">
-        <label for="fileInput">📎 Upload </label>
+        <label for="fileInput">📎 Upload CSV / PDF / Excel</label>
         <input type="file" id="fileInput" accept=".csv,.pdf,.xlsx,.xls,.txt,.docx,.doc,.png,.jpg,.jpeg,.gif,.bmp,.webp" />
         <span class="file-name" id="uploadedFileName">No file selected</span>
         <button class="reset-btn" id="summaryBtn">📄 Summary</button>
@@ -342,11 +253,11 @@
     <!-- Chat Messages -->
     <div class="chat-messages" id="chatMessages">
         <div class="message bot">
-            👋 Hello! Upload a CSV, PDF, or Excel file, then ask me questions about your data.
+            👋 Hello! Upload a file (CSV, PDF, Excel, TXT, DOCX, or Image) – drag & drop or click to choose.
         </div>
     </div>
 
-    <!-- Typing Indicator (hidden by default) -->
+    <!-- Typing Indicator -->
     <div class="typing-indicator" id="typingIndicator" style="display: none; margin: 0 24px 8px;">
         <span>●</span><span>●</span><span>●</span>
     </div>
@@ -359,181 +270,207 @@
 </div>
 
 <script>
-    (function() {
-        // DOM refs
-        const fileInput = document.getElementById('fileInput');
-        const uploadedFileName = document.getElementById('uploadedFileName');
-        const fileNameDisplay = document.getElementById('fileNameDisplay');
-        const statusDot = document.getElementById('statusDot');
-        const chatMessages = document.getElementById('chatMessages');
-        const queryInput = document.getElementById('queryInput');
-        const sendBtn = document.getElementById('sendBtn');
-        const resetBtn = document.getElementById('resetBtn');
-        const typingIndicator = document.getElementById('typingIndicator');
+(function() {
+    // ─── DOM refs ──────────────────────────────────────────────
+    const fileInput = document.getElementById('fileInput');
+    const uploadedFileName = document.getElementById('uploadedFileName');
+    const fileNameDisplay = document.getElementById('fileNameDisplay');
+    const statusDot = document.getElementById('statusDot');
+    const chatMessages = document.getElementById('chatMessages');
+    const queryInput = document.getElementById('queryInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const typingIndicator = document.getElementById('typingIndicator');
 
-        // --- Helpers ---
-        function updateFileStatus(name) {
-            if (name && name !== 'No document') {
-                fileNameDisplay.textContent = name;
-                statusDot.className = 'dot indexed';
+    // ─── Helpers ──────────────────────────────────────────────
+    function updateFileStatus(name) {
+        if (name && name !== 'No document') {
+            fileNameDisplay.textContent = name;
+            statusDot.className = 'dot indexed';
+        } else {
+            fileNameDisplay.textContent = 'No document';
+            statusDot.className = 'dot none';
+        }
+    }
+
+    function addMessage(text, sender) {
+        const div = document.createElement('div');
+        div.className = `message ${sender}`;
+        div.textContent = text;
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function addBotMessageWithSources(answer, sources) {
+        const div = document.createElement('div');
+        div.className = 'message bot';
+        div.innerHTML = `<div>${answer}</div>`;
+        if (sources && sources.length) {
+            const srcDiv = document.createElement('div');
+            srcDiv.className = 'sources';
+            srcDiv.style.display = 'block';
+            srcDiv.innerHTML = '📄 Sources: ' + sources.map(s => `<span style="background:#2a3a4e;padding:2px 8px;border-radius:12px;margin:2px;display:inline-block;">${s}</span>`).join(' ');
+            div.appendChild(srcDiv);
+        }
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function showTyping(show) {
+        typingIndicator.style.display = show ? 'flex' : 'none';
+        if (show) chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function setSendEnabled(enabled) {
+        sendBtn.disabled = !enabled;
+        queryInput.disabled = !enabled;
+    }
+
+    async function uploadFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const resp = await fetch('/upload', { method: 'POST', body: formData });
+            const data = await resp.json();
+            if (resp.ok) {
+                updateFileStatus(file.name);
+                addMessage(`✅ File "${file.name}" uploaded and indexing started.`, 'bot');
+                return true;
             } else {
-                fileNameDisplay.textContent = 'No document';
-                statusDot.className = 'dot none';
+                throw new Error(data.detail || 'Upload failed');
             }
+        } catch (err) {
+            addMessage(`❌ Upload error: ${err.message}`, 'bot');
+            return false;
         }
+    }
 
-        function addMessage(text, sender) {
-            const div = document.createElement('div');
-            div.className = `message ${sender}`;
-            div.textContent = text;
-            chatMessages.appendChild(div);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
+    // ─── File Input (click) ──────────────────────────────────────
+    fileInput.addEventListener('change', async function() {
+        if (!this.files.length) return;
+        const file = this.files[0];
+        uploadedFileName.textContent = file.name;
+        await uploadFile(file);
+        this.value = ''; // reset
+    });
 
-        function addBotMessageWithSources(answer, sources) {
-            const div = document.createElement('div');
-            div.className = 'message bot';
-            div.innerHTML = `<div>${answer}</div>`;
-            if (sources && sources.length) {
-                const srcDiv = document.createElement('div');
-                srcDiv.className = 'sources';
-                srcDiv.style.display = 'block';
-                srcDiv.innerHTML = '📄 Sources: ' + sources.map(s => `<span style="background:#2a3a4e;padding:2px 8px;border-radius:12px;margin:2px;display:inline-block;">${s}</span>`).join(' ');
-                div.appendChild(srcDiv);
+    // ─── Query ──────────────────────────────────────────────────
+    async function sendQuery() {
+        const text = queryInput.value.trim();
+        if (!text) return;
+        queryInput.value = '';
+        addMessage(text, 'user');
+        setSendEnabled(false);
+        showTyping(true);
+
+        try {
+            const resp = await fetch('/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: text, chat_history: [] })
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                addBotMessageWithSources(data.answer, data.source_chunks || []);
+                updateFileStatus(fileNameDisplay.textContent);
+            } else {
+                throw new Error(data.detail || 'Query failed');
             }
-            chatMessages.appendChild(div);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+        } catch (err) {
+            addMessage(`❌ Error: ${err.message}`, 'bot');
+        } finally {
+            showTyping(false);
+            setSendEnabled(true);
         }
+    }
 
-        function showTyping(show) {
-            typingIndicator.style.display = show ? 'flex' : 'none';
-            if (show) {
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-            }
-        }
+    sendBtn.addEventListener('click', sendQuery);
+    queryInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') sendQuery();
+    });
 
-        function setSendEnabled(enabled) {
-            sendBtn.disabled = !enabled;
-            queryInput.disabled = !enabled;
-        }
-
-        // --- File Upload ---
-        fileInput.addEventListener('change', async function() {
-            if (!this.files.length) return;
-            const file = this.files[0];
-            uploadedFileName.textContent = file.name;
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            try {
-                const resp = await fetch('/upload', {
-                    method: 'POST',
-                    body: formData
-                });
+    // ─── Reset ──────────────────────────────────────────────────
+    resetBtn.addEventListener('click', async function() {
+        try {
+            const resp = await fetch('/reset', { method: 'POST' });
+            if (resp.ok) {
+                updateFileStatus(null);
+                chatMessages.innerHTML = `<div class="message bot">🧹 State reset. Upload a new file to start.</div>`;
+                uploadedFileName.textContent = 'No file selected';
+                addMessage('State cleared successfully.', 'bot');
+            } else {
                 const data = await resp.json();
-                if (resp.ok) {
-                    updateFileStatus(file.name);
-                    addMessage(`✅ File "${file.name}" uploaded and indexing started.`, 'bot');
-                } else {
-                    throw new Error(data.detail || 'Upload failed');
-                }
-            } catch (err) {
-                addMessage(`❌ Upload error: ${err.message}`, 'bot');
+                throw new Error(data.detail || 'Reset failed');
             }
-            fileInput.value = '';
-        });
+        } catch (err) {
+            addMessage(`❌ Reset error: ${err.message}`, 'bot');
+        }
+    });
 
-        // --- Query ---
-        async function sendQuery() {
-            const text = queryInput.value.trim();
-            if (!text) return;
-            queryInput.value = '';
-            addMessage(text, 'user');
-            setSendEnabled(false);
+    // ─── Summary ────────────────────────────────────────────────
+    document.getElementById('summaryBtn').addEventListener('click', async function() {
+        try {
             showTyping(true);
-
-            try {
-                const resp = await fetch('/query', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question: text, chat_history: [] })
-                });
-                const data = await resp.json();
-                if (resp.ok) {
-                    addBotMessageWithSources(data.answer, data.source_chunks || []);
-                    updateFileStatus(fileNameDisplay.textContent);
-                } else {
-                    throw new Error(data.detail || 'Query failed');
-                }
-            } catch (err) {
-                addMessage(`❌ Error: ${err.message}`, 'bot');
-            } finally {
-                showTyping(false);
-                setSendEnabled(true);
+            const resp = await fetch('/summary');
+            const data = await resp.json();
+            showTyping(false);
+            if (resp.ok) {
+                addMessage(`📝 Summary:\n\n${data.summary}`, 'bot');
+            } else {
+                throw new Error(data.detail || 'Summary failed');
             }
+        } catch (err) {
+            showTyping(false);
+            addMessage(`❌ Summary error: ${err.message}`, 'bot');
         }
+    });
 
-        sendBtn.addEventListener('click', sendQuery);
-        queryInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') sendQuery();
-        });
+    // ─── Dashboard (opens in new tab) ────────────────────────────
+    document.getElementById('dashboard-btn').addEventListener('click', function() {
+        window.open('/dashboard', '_blank');
+    });
 
-        // --- Reset ---
-        resetBtn.addEventListener('click', async function() {
-            try {
-                const resp = await fetch('/reset', { method: 'POST' });
-                if (resp.ok) {
-                    updateFileStatus(null);
-                    chatMessages.innerHTML = `<div class="message bot">🧹 State reset. Upload a new file to start.</div>`;
-                    uploadedFileName.textContent = 'No file selected';
-                    addMessage('State cleared successfully.', 'bot');
-                } else {
-                    const data = await resp.json();
-                    throw new Error(data.detail || 'Reset failed');
-                }
-            } catch (err) {
-                addMessage(`❌ Reset error: ${err.message}`, 'bot');
-            }
-        });
+    // ─── Drag & Drop ──────────────────────────────────────────────
+    let dragCounter = 0;
+    const dropZone = document.getElementById('dropZone');
 
-        // --- Summary (in‑chat) ---
-        document.getElementById('summaryBtn').addEventListener('click', async function() {
-            try {
-                showTyping(true);
-                const resp = await fetch('/summary');
-                const data = await resp.json();
-                showTyping(false);
-                if (resp.ok) {
-                    addMessage(`📝 Summary:\n\n${data.summary}`, 'bot');
-                } else {
-                    throw new Error(data.detail || 'Summary failed');
-                }
-            } catch (err) {
-                showTyping(false);
-                addMessage(`❌ Summary error: ${err.message}`, 'bot');
-            }
-        });
+    document.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        dragCounter++;
+        dropZone.classList.add('show');
+    });
 
-        // --- Dashboard (opens in new tab) ---
-        document.getElementById('dashboard-btn').addEventListener('click', function() {
-            window.open('/dashboard', '_blank');
-        });
+    document.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dragCounter--;
+        if (dragCounter === 0) dropZone.classList.remove('show');
+    });
 
-        // --- Initial health check (optional) ---
-        async function fetchInitialStatus() {
-            try {
-                const resp = await fetch('/health');
-                const data = await resp.json();
-                if (data.file_indexed) {
-                    // we could update the status badge if needed
-                }
-            } catch (_) { /* ignore */ }
-        }
-        fetchInitialStatus();
+    document.addEventListener('dragover', (e) => e.preventDefault());
 
-    })();
+    document.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        dropZone.classList.remove('show');
+
+        const files = e.dataTransfer.files;
+        if (!files.length) return;
+        const file = files[0];
+        uploadedFileName.textContent = file.name;
+        await uploadFile(file);
+    });
+
+    // ─── Initial health check (optional) ──────────────────────────
+    async function fetchInitialStatus() {
+        try {
+            const resp = await fetch('/health');
+            const data = await resp.json();
+            if (data.file_indexed) { /* update status if needed */ }
+        } catch (_) {}
+    }
+    fetchInitialStatus();
+
+})();
 </script>
-
 </body>
 </html>
