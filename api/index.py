@@ -378,11 +378,62 @@ async def query_rag(request: dict):
 @app.get("/summary")
 async def get_summary():
     if not GLOBAL_STATE["all_chunks"]:
-        raise HTTPException(400, "No document indexed")
+        raise HTTPException(400, "No document has been indexed yet.")
+
     full_text = "\n\n".join(GLOBAL_STATE["all_chunks"])
-    prompt = f"Provide a comprehensive summary of the document:\n\n{full_text}\n\nSummary:"
-    summary = llm_invoke(prompt)
-    return {"summary": summary}
+
+    # ─── For short documents ──────────────────────────────────────────
+    if len(full_text) < 10000:
+        prompt = f"""
+        Provide a comprehensive summary of the document in a numbered list (1., 2., 3., ...).
+        Each bullet point should be a clear, concise key takeaway.
+        If there are logical sections, group points under section headers, but keep the main structure as a numbered list.
+
+        Document:
+        {full_text}
+
+        Summary (numbered list):
+        """
+        summary = llm_invoke(prompt)
+        return {"summary": summary}
+
+    # ─── For long documents – Map‑Reduce ──────────────────────────────
+    segment_size = 2500
+    overlap = 300
+    segments = []
+    start = 0
+    while start < len(full_text):
+        end = min(start + segment_size, len(full_text))
+        segments.append(full_text[start:end])
+        start = end - overlap
+
+    segment_summaries = []
+    for i, seg in enumerate(segments):
+        prompt = f"""
+        Summarize this document section (part {i+1}/{len(segments)}) in a numbered list of key points (1., 2., 3., ...).
+        Focus on the main ideas and important details.
+
+        Section:
+        {seg}
+
+        Bullet summary (numbered list):
+        """
+        seg_summary = llm_invoke(prompt)
+        segment_summaries.append(seg_summary)
+
+    combined = "\n\n".join(segment_summaries)
+    final_prompt = f"""
+    Combine the following section summaries into one cohesive overall summary.
+    Present the final summary as a single numbered list (1., 2., 3., …) without duplicating points.
+    Ensure logical order and clarity.
+
+    Section summaries:
+    {combined}
+
+    Overall summary (numbered list):
+    """
+    final_summary = llm_invoke(final_prompt)
+    return {"summary": final_summary}
 
 @app.post("/reset")
 async def reset_state():
