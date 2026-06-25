@@ -470,34 +470,70 @@ async def query_rag(request: dict):
         raise HTTPException(400, "Missing question")
     if GLOBAL_STATE["retriever"] is None:
         raise HTTPException(400, "No document indexed yet")
+
     docs = GLOBAL_STATE["retriever"].invoke(question)
     if not docs:
         return {"answer": "No relevant information found.", "source_chunks": []}
+
     context = "\n\n".join([d.page_content for d in docs])
     source_chunks = [d.page_content[:150] + "..." for d in docs]
-    prompt = f"Answer based only on the context:\n\nContext:\n{context}\n\nQuestion: {question}\nAnswer:"
-    answer = llm_invoke(prompt)
-    return {"answer": answer, "source_chunks": source_chunks}
+
+    prompt = f"""
+    You are a helpful assistant. Answer the user's question based ONLY on the provided context.
+
+    First, think step‑by‑step about how to answer the question. Then produce the final answer.
+
+    Context:
+    {context}
+
+    Question: {question}
+
+    Output format:
+    REASONING: (your step‑by‑step reasoning, 2‑4 sentences)
+    ANSWER: (your final answer based solely on the context)
+    """
+    raw = llm_invoke(prompt)
+
+    # Split reasoning and answer
+    reasoning = ""
+    answer = raw
+    if "REASONING:" in raw and "ANSWER:" in raw:
+        parts = raw.split("ANSWER:")
+        reasoning = parts[0].replace("REASONING:", "").strip()
+        answer = parts[1].strip()
+
+    return {
+        "answer": answer,
+        "reasoning": reasoning,
+        "source_chunks": source_chunks
+    }
 
 @app.get("/summary")
 async def get_summary():
     if not GLOBAL_STATE["all_chunks"]:
         raise HTTPException(400, "No document has been indexed yet.")
+
     full_text = "\n\n".join(GLOBAL_STATE["all_chunks"])
+
+    # ─── Short documents ──────────────────────────────────────────
     if len(full_text) < 10000:
         prompt = f"""
-        Provide a comprehensive summary of the document as a numbered list.
+        Read the entire document and produce a concise summary as a numbered list of the most important points.
+        Output ONLY the numbered list – no introduction, no extra text, no explanation.
         Each point must be on its own line, starting with a number (1., 2., 3., ...).
-        Do not merge points into paragraphs. Use clear, concise language.
+        Keep each point clear and brief.
 
         Document:
         {full_text}
 
-        Summary (numbered list, one point per line):
+        Numbered list:
         """
         summary = llm_invoke(prompt)
+        # Ensure each number starts on a new line
         summary = re.sub(r'(\d+\.\s*)', r'\n\1', summary).strip()
         return {"summary": summary}
+
+    # ─── Long documents – Map‑Reduce ──────────────────────────────
     segment_size = 2500
     overlap = 300
     segments = []
@@ -506,12 +542,13 @@ async def get_summary():
         end = min(start + segment_size, len(full_text))
         segments.append(full_text[start:end])
         start = end - overlap
+
     segment_summaries = []
     for i, seg in enumerate(segments):
         prompt = f"""
-        Summarize this section (part {i+1}/{len(segments)}) as a numbered list.
-        Each point must be on a new line, starting with a number (1., 2., ...).
-        Keep points clear and standalone.
+        Read this document section (part {i+1}/{len(segments)}) and produce a numbered list of the key points.
+        Output ONLY the numbered list – no introduction, no extra text.
+        Each point on a new line, starting with a number (1., 2., ...).
 
         Section:
         {seg}
@@ -520,16 +557,18 @@ async def get_summary():
         """
         seg_summary = llm_invoke(prompt)
         segment_summaries.append(seg_summary)
+
     combined = "\n\n".join(segment_summaries)
     final_prompt = f"""
-    Combine the following section summaries into one final numbered list.
+    Combine the following section summaries into one final numbered list of the most important points from the entire document.
+    Output ONLY the numbered list – no introduction, no extra text.
+    Remove duplicates, keep logical order.
     Each point must be on its own line, starting with a number (1., 2., 3., ...).
-    Avoid duplicates; keep the logical order.
 
     Section summaries:
     {combined}
 
-    Final summary (numbered list, one point per line):
+    Final numbered list:
     """
     final_summary = llm_invoke(final_prompt)
     final_summary = re.sub(r'(\d+\.\s*)', r'\n\1', final_summary).strip()

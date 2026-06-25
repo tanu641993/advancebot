@@ -301,10 +301,17 @@
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
-    function addBotMessageWithSources(answer, sources) {
+    function addBotMessageWithReasoning(answer, reasoning, sources) {
         const div = document.createElement('div');
         div.className = 'message bot';
-        div.innerHTML = `<div>${answer}</div>`;
+        let html = '';
+        if (reasoning) {
+            html += `<details style="margin-bottom:8px;cursor:pointer;">
+                <summary style="color:#8aa4c0;font-size:13px;">💡 Reasoning</summary>
+                <div style="background:#0a121e;padding:8px 12px;border-radius:6px;margin-top:6px;font-size:14px;color:#b0c8e0;">${reasoning}</div>
+            </details>`;
+        }
+        html += `<div>${answer}</div>`;
         if (sources && sources.length) {
             const srcDiv = document.createElement('div');
             srcDiv.className = 'sources';
@@ -312,6 +319,7 @@
             srcDiv.innerHTML = '📄 Sources: ' + sources.map(s => `<span style="background:#2a3a4e;padding:2px 8px;border-radius:12px;margin:2px;display:inline-block;">${s}</span>`).join(' ');
             div.appendChild(srcDiv);
         }
+        div.innerHTML = html;
         chatMessages.appendChild(div);
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
@@ -371,8 +379,7 @@
             });
             const data = await resp.json();
             if (resp.ok) {
-                addBotMessageWithSources(data.answer, data.source_chunks || []);
-                updateFileStatus(fileNameDisplay.textContent);
+                addBotMessageWithReasoning(data.answer, data.reasoning, data.source_chunks || []);
             } else {
                 throw new Error(data.detail || 'Query failed');
             }
