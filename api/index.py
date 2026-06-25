@@ -1,4 +1,3 @@
-#advancebot
 import os
 os.environ["GOOGLE_API_VERSION"] = "v1"
 os.environ["GOOGLE_API_ENDPOINT"] = "https://generativelanguage.googleapis.com/v1/"
@@ -129,415 +128,6 @@ class ChatGemini:
 
 llm = ChatGemini(model="gemini-2.5-flash", temperature=0.0, max_output_tokens=2048)
 
-def process_document(file_path: str, ext: str):
-    logger.info(f"Processing {file_path} with extension {ext}")
-    try:
-        docs = []
-
-        # ─── CSV ────────────────────────────────────────────
-        if ext == ".csv":
-            import csv
-            with open(file_path, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                rows = list(reader)
-            if not rows:
-                raise HTTPException(400, "CSV is empty.")
-            GLOBAL_STATE["raw_data"] = rows
-            block_size = 20
-            for i in range(0, len(rows), block_size):
-                block = rows[i:i+block_size]
-                text = f"Rows {i+1} to {min(i+block_size, len(rows))}:\n"
-                for row in block:
-                    text += ", ".join(f"{col}: {val}" for col, val in row.items()) + "\n"
-                class Doc:
-                    def __init__(self, content, meta):
-                        self.page_content = content
-                        self.metadata = meta
-                docs.append(Doc(text, {"source": "CSV", "row_start": i+1}))
-
-        # ─── PDF ────────────────────────────────────────────
-        elif ext == ".pdf":
-            try:
-                docs = PyPDFLoader(file_path=file_path).load()
-            except Exception as e:
-                if "decrypted" in str(e).lower():
-                    logger.warning("PDF encrypted – trying empty password.")
-                    docs = PyPDFLoader(file_path=file_path, password="").load()
-                else:
-                    raise
-        
-        # ─── IMAGE processing ──────────────────────────────────────────
-        elif ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"):
-            from google.genai import types
-            import base64
-
-            # Read image bytes
-            with open(file_path, 'rb') as f:
-                image_bytes = f.read()
-
-            # Create a Gemini client (we already have one, but we can use a fresh one)
-            client = genai.Client(api_key=GOOGLE_API_KEY)
-            # Send image and prompt
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",  # multimodal model
-                contents=[
-                    types.Part.from_bytes(data=image_bytes, mime_type=f"image/{ext[1:]}"),
-                    "Extract all text from this image. If there is no text, describe the image content in detail."
-                ]
-            )
-            text = response.text
-            if not text.strip():
-                raise HTTPException(400, "No text or content extracted from image")
-
-            # Create a document object from the extracted text
-            class Doc:
-                def __init__(self, content, meta):
-                    self.page_content = content
-                    self.metadata = meta
-            docs.append(Doc(text, {"source": "Image", "filename": Path(file_path).name}))
-
-        else:
-            raise HTTPException(400, "Unsupported format")
-
-        # ─── Excel ──────────────────────────────────────────
-        elif ext in (".xlsx", ".xls"):
-            if pd is None:
-                raise HTTPException(400, "Pandas not installed")
-            xls = pd.ExcelFile(file_path)
-            all_rows = []
-            block_size = 20
-            for sheet in xls.sheet_names:
-                df = pd.read_excel(file_path, sheet_name=sheet)
-                if df.empty:
-                    continue
-                rows = df.to_dict(orient='records')
-                all_rows.extend(rows)
-                for i in range(0, len(df), block_size):
-                    block = df.iloc[i:i+block_size]
-                    text = f"Sheet: {sheet} | Rows {i+2} to {min(i+block_size, len(df))+1}:\n"
-                    for _, row in block.iterrows():
-                        text += ", ".join(f"{col}: {row[col]}" for col in df.columns) + "\n"
-                    class Doc:
-                        def __init__(self, content, meta):
-                            self.page_content = content
-                            self.metadata = meta
-                    docs.append(Doc(text, {"sheet": sheet, "row_start": i+2, "source": "Excel"}))
-            GLOBAL_STATE["raw_data"] = all_rows
-
-        # ─── Plain Text ──────────────────────────────────────
-        elif ext == ".txt":
-            with open(file_path, 'r', encoding='utf-8') as f:
-                text = f.read()
-            if not text.strip():
-                raise HTTPException(400, "Text file is empty.")
-            # Split into paragraphs or lines for chunking
-            class Doc:
-                def __init__(self, content, meta):
-                    self.page_content = content
-                    self.metadata = meta
-            # We'll keep it as one large document; the splitter will chunk it
-            docs.append(Doc(text, {"source": "TXT"}))
-
-        # ─── Word (.docx) ──────────────────────────────────
-        elif ext == ".docx":
-            try:
-                import docx
-                doc = docx.Document(file_path)
-                text = "\n".join([para.text for para in doc.paragraphs])
-            except ImportError:
-                # Fallback using docx2txt
-                import docx2txt
-                text = docx2txt.process(file_path)
-            if not text.strip():
-                raise HTTPException(400, "Word document is empty.")
-            class Doc:
-                def __init__(self, content, meta):
-                    self.page_content = content
-                    self.metadata = meta
-            docs.append(Doc(text, {"source": "DOCX"}))
-
-        # ─── Word (.doc) – legacy format ────────────────────
-        elif ext == ".doc":
-            # Use antiword or textract? For simplicity, we'll use docx2txt (may not work for .doc)
-            # A better approach: use textract or convert to docx. For now, try docx2txt.
-            try:
-                import docx2txt
-                text = docx2txt.process(file_path)
-            except Exception:
-                raise HTTPException(400, "Cannot read .doc file. Please convert to .docx or .txt.")
-            if not text.strip():
-                raise HTTPException(400, "Word document is empty.")
-            class Doc:
-                def __init__(self, content, meta):
-                    self.page_content = content
-                    self.metadata = meta
-            docs.append(Doc(text, {"source": "DOC"}))
-
-        else:
-            raise HTTPException(400, "Unsupported format")
-
-        # ─── Fallback if no docs ─────────────────────────────
-        if not docs:
-            raise HTTPException(400, "No content extracted")
-
-        # ─── Clean ──────────────────────────────────────────
-        for doc in docs:
-            doc.page_content = clean_text(doc.page_content)
-
-        # ─── Split ──────────────────────────────────────────
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800, chunk_overlap=100
-        )
-        chunks = text_splitter.split_documents(docs)
-        logger.info(f"Split into {len(chunks)} chunks")
-
-        # ─── Deduplicate ────────────────────────────────────
-        chunks = deduplicate_chunks(chunks)
-        logger.info(f"After dedup: {len(chunks)}")
-
-        # ─── Filter empty ──────────────────────────────────
-        chunks = [c for c in chunks if c.page_content.strip() != ""]
-        logger.info(f"After filtering empty: {len(chunks)}")
-
-        if not chunks:
-            raise HTTPException(400, "No valid chunks extracted.")
-
-        # ─── Store and index ──────────────────────────────
-        GLOBAL_STATE["all_chunks"] = [c.page_content for c in chunks]
-        GLOBAL_STATE["chunk_metadata"] = [c.metadata for c in chunks]
-
-        embeddings = GeminiEmbeddings(model="gemini-embedding-2")
-        vectorstore = FAISS.from_documents(chunks, embeddings)
-        GLOBAL_STATE["retriever"] = vectorstore.as_retriever(search_kwargs={"k": 8})
-
-        GLOBAL_STATE["file_hash"] = compute_hash(open(file_path, "rb").read())
-        GLOBAL_STATE["filename"] = Path(file_path).name
-        logger.info(f"Indexed {GLOBAL_STATE['filename']} successfully")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("process_document failed")
-        raise HTTPException(500, f"Processing error: {str(e)}")
-
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    if not file.filename:
-        raise HTTPException(400, "No file selected")
-    ext = Path(file.filename).suffix.lower()
-    if ext not in (".csv", ".pdf", ".xlsx", ".xls", ".txt", ".docx", ".doc",
-                   ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"):
-        raise HTTPException(400, "Unsupported file type")
-    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-        content = await file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
-    try:
-        process_document(tmp_path, ext)
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except:
-            pass
-    return {"message": "File uploaded and indexed successfully.", "filename": file.filename}
-
-# ✅ CORRECTED /dashboard-data endpoint
-@app.get("/dashboard-data")
-async def get_dashboard_data():
-    try:
-        raw = GLOBAL_STATE.get("raw_data")
-        if raw is None or len(raw) == 0:
-            raise HTTPException(400, "No data uploaded yet.")
-
-        if pd is None:
-            raise HTTPException(500, "Pandas is not installed.")
-
-        # --- SAFE DATAFRAME CREATION ---
-        try:
-            df = pd.DataFrame(raw)
-        except Exception as e:
-            # If direct conversion fails, try converting each value to string
-            cleaned = []
-            for row in raw:
-                cleaned.append({str(k): str(v) if v is not None else "" for k, v in row.items()})
-            df = pd.DataFrame(cleaned)
-
-        if df.empty:
-            raise HTTPException(400, "DataFrame is empty – no data to display.")
-
-        # --- BASIC INFO (always works) ---
-        total_rows = len(df)
-        total_cols = len(df.columns)
-        column_names = list(df.columns)
-
-        # --- COLUMN TYPES (safe) ---
-        dtypes = {}
-        for col in df.columns:
-            try:
-                dtypes[col] = str(df[col].dtype)
-            except:
-                dtypes[col] = "unknown"
-
-        # --- NUMERIC SUMMARY (skip non-numeric columns) ---
-        numeric_summary = {}
-        for col in df.columns:
-            try:
-                if pd.api.types.is_numeric_dtype(df[col]):
-                    numeric_summary[col] = {
-                        "mean": float(df[col].mean()),
-                        "min": float(df[col].min()),
-                        "max": float(df[col].max()),
-                        "std": float(df[col].std()),
-                        "count": int(df[col].count()),
-                        "missing": int(df[col].isna().sum())
-                    }
-            except:
-                pass
-
-        # --- CATEGORICAL SUMMARY (skip non-string columns) ---
-        categorical_summary = {}
-        for col in df.columns:
-            try:
-                if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
-                    freq = df[col].value_counts().head(5).to_dict()
-                    categorical_summary[col] = {
-                        "top_values": freq,
-                        "unique_count": int(df[col].nunique()),
-                        "missing": int(df[col].isna().sum())
-                    }
-            except:
-                pass
-
-        # --- MISSING VALUES (safe) ---
-        missing_per_col = {}
-        for col in df.columns:
-            try:
-                missing_per_col[col] = int(df[col].isna().sum())
-            except:
-                missing_per_col[col] = 0
-
-        # --- SAMPLE DATA (first 10 rows, convert to dict) ---
-        sample = []
-        for _, row in df.head(10).iterrows():
-            sample.append(row.to_dict())
-
-        return {
-            "total_rows": total_rows,
-            "total_cols": total_cols,
-            "column_names": column_names,
-            "dtypes": dtypes,
-            "numeric_summary": numeric_summary,
-            "categorical_summary": categorical_summary,
-            "missing_per_col": missing_per_col,
-            "sample": sample
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Dashboard data error")
-        raise HTTPException(500, f"Error processing data: {str(e)}")
-
-@app.post("/query")
-async def query_rag(request: dict):
-    question = request.get("question")
-    if not question:
-        raise HTTPException(400, "Missing question")
-    if GLOBAL_STATE["retriever"] is None:
-        raise HTTPException(400, "No document indexed yet")
-
-    docs = GLOBAL_STATE["retriever"].invoke(question)
-    if not docs:
-        return {"answer": "No relevant information found.", "source_chunks": []}
-
-    context = "\n\n".join([d.page_content for d in docs])
-    source_chunks = [d.page_content[:150] + "..." for d in docs]
-
-    prompt = f"Answer based only on the context:\n\nContext:\n{context}\n\nQuestion: {question}\nAnswer:"
-    answer = llm_invoke(prompt)
-    return {"answer": answer, "source_chunks": source_chunks}
-
-@app.get("/summary")
-async def get_summary():
-    if not GLOBAL_STATE["all_chunks"]:
-        raise HTTPException(400, "No document has been indexed yet.")
-
-    full_text = "\n\n".join(GLOBAL_STATE["all_chunks"])
-
-    # ─── Short documents ──────────────────────────────────────────
-    if len(full_text) < 10000:
-        prompt = f"""
-        Provide a comprehensive summary of the document as a numbered list.
-        Each point must be on its own line, starting with a number (1., 2., 3., ...).
-        Do not merge points into paragraphs. Use clear, concise language.
-
-        Document:
-        {full_text}
-
-        Summary (numbered list, one point per line):
-        """
-        summary = llm_invoke(prompt)
-        # Optional: ensure newlines after each number (post‑processing)
-        summary = re.sub(r'(\d+\.\s*)', r'\n\1', summary).strip()
-        return {"summary": summary}
-
-    # ─── Long documents – Map‑Reduce ──────────────────────────────
-    segment_size = 2500
-    overlap = 300
-    segments = []
-    start = 0
-    while start < len(full_text):
-        end = min(start + segment_size, len(full_text))
-        segments.append(full_text[start:end])
-        start = end - overlap
-
-    segment_summaries = []
-    for i, seg in enumerate(segments):
-        prompt = f"""
-        Summarize this section (part {i+1}/{len(segments)}) as a numbered list.
-        Each point must be on a new line, starting with a number (1., 2., ...).
-        Keep points clear and standalone.
-
-        Section:
-        {seg}
-
-        Numbered list:
-        """
-        seg_summary = llm_invoke(prompt)
-        segment_summaries.append(seg_summary)
-
-    combined = "\n\n".join(segment_summaries)
-    final_prompt = f"""
-    Combine the following section summaries into one final numbered list.
-    Each point must be on its own line, starting with a number (1., 2., 3., ...).
-    Avoid duplicates; keep the logical order.
-
-    Section summaries:
-    {combined}
-
-    Final summary (numbered list, one point per line):
-    """
-    final_summary = llm_invoke(final_prompt)
-    # Post‑process to ensure newlines
-    final_summary = re.sub(r'(\d+\.\s*)', r'\n\1', final_summary).strip()
-    return {"summary": final_summary}
-
-@app.post("/reset")
-async def reset_state():
-    GLOBAL_STATE["retriever"] = None
-    GLOBAL_STATE["file_hash"] = None
-    GLOBAL_STATE["filename"] = None
-    GLOBAL_STATE["all_chunks"] = []
-    GLOBAL_STATE["prompt_cache"].clear()
-    return {"message": "State reset"}
-
-@app.get("/dashboard")
-async def dashboard_page():
-    """Serve the dashboard HTML page."""
-    try:
-        return FileResponse("templates/dashboard.html")
-    except Exception as e:
-        return HTMLResponse(f"<h1>Error loading dashboard</h1><p>{str(e)}</p>", status_code=500)
-
 # ─── Helper functions ──────────────────────────────────────────────────────
 
 def compute_hash(b: bytes) -> str:
@@ -600,6 +190,367 @@ def llm_invoke(prompt: str) -> str:
     cache.put(p_hash, result)
     return result
 
+# ─── Document Processing ──────────────────────────────────────────────────
+
+def process_document(file_path: str, ext: str):
+    logger.info(f"Processing {file_path} with extension {ext}")
+    try:
+        docs = []
+
+        # ─── CSV ────────────────────────────────────────────
+        if ext == ".csv":
+            import csv
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+            if not rows:
+                raise HTTPException(400, "CSV is empty.")
+            GLOBAL_STATE["raw_data"] = rows
+            block_size = 20
+            for i in range(0, len(rows), block_size):
+                block = rows[i:i+block_size]
+                text = f"Rows {i+1} to {min(i+block_size, len(rows))}:\n"
+                for row in block:
+                    text += ", ".join(f"{col}: {val}" for col, val in row.items()) + "\n"
+                class Doc:
+                    def __init__(self, content, meta):
+                        self.page_content = content
+                        self.metadata = meta
+                docs.append(Doc(text, {"source": "CSV", "row_start": i+1}))
+
+        # ─── PDF ────────────────────────────────────────────
+        elif ext == ".pdf":
+            try:
+                docs = PyPDFLoader(file_path=file_path).load()
+            except Exception as e:
+                if "decrypted" in str(e).lower():
+                    logger.warning("PDF encrypted – trying empty password.")
+                    docs = PyPDFLoader(file_path=file_path, password="").load()
+                else:
+                    raise
+
+        # ─── Excel ──────────────────────────────────────────
+        elif ext in (".xlsx", ".xls"):
+            if pd is None:
+                raise HTTPException(400, "Pandas not installed")
+            xls = pd.ExcelFile(file_path)
+            all_rows = []
+            block_size = 20
+            for sheet in xls.sheet_names:
+                df = pd.read_excel(file_path, sheet_name=sheet)
+                if df.empty:
+                    continue
+                rows = df.to_dict(orient='records')
+                all_rows.extend(rows)
+                for i in range(0, len(df), block_size):
+                    block = df.iloc[i:i+block_size]
+                    text = f"Sheet: {sheet} | Rows {i+2} to {min(i+block_size, len(df))+1}:\n"
+                    for _, row in block.iterrows():
+                        text += ", ".join(f"{col}: {row[col]}" for col in df.columns) + "\n"
+                    class Doc:
+                        def __init__(self, content, meta):
+                            self.page_content = content
+                            self.metadata = meta
+                    docs.append(Doc(text, {"sheet": sheet, "row_start": i+2, "source": "Excel"}))
+            GLOBAL_STATE["raw_data"] = all_rows
+
+        # ─── Plain Text ──────────────────────────────────────
+        elif ext == ".txt":
+            with open(file_path, 'r', encoding='utf-8') as f:
+                text = f.read()
+            if not text.strip():
+                raise HTTPException(400, "Text file is empty.")
+            class Doc:
+                def __init__(self, content, meta):
+                    self.page_content = content
+                    self.metadata = meta
+            docs.append(Doc(text, {"source": "TXT"}))
+
+        # ─── Word (.docx) ──────────────────────────────────
+        elif ext == ".docx":
+            try:
+                import docx
+                doc = docx.Document(file_path)
+                text = "\n".join([para.text for para in doc.paragraphs])
+            except ImportError:
+                import docx2txt
+                text = docx2txt.process(file_path)
+            if not text.strip():
+                raise HTTPException(400, "Word document is empty.")
+            class Doc:
+                def __init__(self, content, meta):
+                    self.page_content = content
+                    self.metadata = meta
+            docs.append(Doc(text, {"source": "DOCX"}))
+
+        # ─── Word (.doc) – legacy format ────────────────────
+        elif ext == ".doc":
+            try:
+                import docx2txt
+                text = docx2txt.process(file_path)
+            except Exception:
+                raise HTTPException(400, "Cannot read .doc file. Please convert to .docx or .txt.")
+            if not text.strip():
+                raise HTTPException(400, "Word document is empty.")
+            class Doc:
+                def __init__(self, content, meta):
+                    self.page_content = content
+                    self.metadata = meta
+            docs.append(Doc(text, {"source": "DOC"}))
+
+        # ─── IMAGE processing ──────────────────────────────────────────
+        elif ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"):
+            import base64
+            with open(file_path, 'rb') as f:
+                image_bytes = f.read()
+            client = genai.Client(api_key=GOOGLE_API_KEY)
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    types.Part.from_bytes(data=image_bytes, mime_type=f"image/{ext[1:]}"),
+                    "Extract all text from this image. If there is no text, describe the image content in detail."
+                ]
+            )
+            text = response.text
+            if not text.strip():
+                raise HTTPException(400, "No text or content extracted from image")
+            class Doc:
+                def __init__(self, content, meta):
+                    self.page_content = content
+                    self.metadata = meta
+            docs.append(Doc(text, {"source": "Image", "filename": Path(file_path).name}))
+
+        else:
+            raise HTTPException(400, "Unsupported format")
+
+        if not docs:
+            raise HTTPException(400, "No content extracted")
+
+        # ─── Clean ──────────────────────────────────────────
+        for doc in docs:
+            doc.page_content = clean_text(doc.page_content)
+
+        # ─── Split ──────────────────────────────────────────
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=800, chunk_overlap=100
+        )
+        chunks = text_splitter.split_documents(docs)
+        logger.info(f"Split into {len(chunks)} chunks")
+
+        chunks = deduplicate_chunks(chunks)
+        logger.info(f"After dedup: {len(chunks)}")
+
+        chunks = [c for c in chunks if c.page_content.strip() != ""]
+        logger.info(f"After filtering empty: {len(chunks)}")
+
+        if not chunks:
+            raise HTTPException(400, "No valid chunks extracted.")
+
+        GLOBAL_STATE["all_chunks"] = [c.page_content for c in chunks]
+        GLOBAL_STATE["chunk_metadata"] = [c.metadata for c in chunks]
+
+        embeddings = GeminiEmbeddings(model="gemini-embedding-2")
+        vectorstore = FAISS.from_documents(chunks, embeddings)
+        GLOBAL_STATE["retriever"] = vectorstore.as_retriever(search_kwargs={"k": 8})
+
+        GLOBAL_STATE["file_hash"] = compute_hash(open(file_path, "rb").read())
+        GLOBAL_STATE["filename"] = Path(file_path).name
+        logger.info(f"Indexed {GLOBAL_STATE['filename']} successfully")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("process_document failed")
+        raise HTTPException(500, f"Processing error: {str(e)}")
+
+# ─── API Endpoints ──────────────────────────────────────────────────────────
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    if not file.filename:
+        raise HTTPException(400, "No file selected")
+    ext = Path(file.filename).suffix.lower()
+    if ext not in (".csv", ".pdf", ".xlsx", ".xls", ".txt", ".docx", ".doc",
+                   ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"):
+        raise HTTPException(400, "Unsupported file type")
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+    try:
+        process_document(tmp_path, ext)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
+    return {"message": "File uploaded and indexed successfully.", "filename": file.filename}
+
+@app.get("/dashboard-data")
+async def get_dashboard_data():
+    try:
+        raw = GLOBAL_STATE.get("raw_data")
+        if raw is None or len(raw) == 0:
+            raise HTTPException(400, "No data uploaded yet.")
+        if pd is None:
+            raise HTTPException(500, "Pandas is not installed.")
+        try:
+            df = pd.DataFrame(raw)
+        except Exception:
+            cleaned = []
+            for row in raw:
+                cleaned.append({str(k): str(v) if v is not None else "" for k, v in row.items()})
+            df = pd.DataFrame(cleaned)
+        if df.empty:
+            raise HTTPException(400, "DataFrame is empty – no data to display.")
+        total_rows = len(df)
+        total_cols = len(df.columns)
+        column_names = list(df.columns)
+        dtypes = {}
+        for col in df.columns:
+            try:
+                dtypes[col] = str(df[col].dtype)
+            except:
+                dtypes[col] = "unknown"
+        numeric_summary = {}
+        for col in df.columns:
+            try:
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    numeric_summary[col] = {
+                        "mean": float(df[col].mean()),
+                        "min": float(df[col].min()),
+                        "max": float(df[col].max()),
+                        "std": float(df[col].std()),
+                        "count": int(df[col].count()),
+                        "missing": int(df[col].isna().sum())
+                    }
+            except:
+                pass
+        categorical_summary = {}
+        for col in df.columns:
+            try:
+                if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+                    freq = df[col].value_counts().head(5).to_dict()
+                    categorical_summary[col] = {
+                        "top_values": freq,
+                        "unique_count": int(df[col].nunique()),
+                        "missing": int(df[col].isna().sum())
+                    }
+            except:
+                pass
+        missing_per_col = {}
+        for col in df.columns:
+            try:
+                missing_per_col[col] = int(df[col].isna().sum())
+            except:
+                missing_per_col[col] = 0
+        sample = []
+        for _, row in df.head(10).iterrows():
+            sample.append(row.to_dict())
+        return {
+            "total_rows": total_rows,
+            "total_cols": total_cols,
+            "column_names": column_names,
+            "dtypes": dtypes,
+            "numeric_summary": numeric_summary,
+            "categorical_summary": categorical_summary,
+            "missing_per_col": missing_per_col,
+            "sample": sample
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Dashboard data error")
+        raise HTTPException(500, f"Error processing data: {str(e)}")
+
+@app.post("/query")
+async def query_rag(request: dict):
+    question = request.get("question")
+    if not question:
+        raise HTTPException(400, "Missing question")
+    if GLOBAL_STATE["retriever"] is None:
+        raise HTTPException(400, "No document indexed yet")
+    docs = GLOBAL_STATE["retriever"].invoke(question)
+    if not docs:
+        return {"answer": "No relevant information found.", "source_chunks": []}
+    context = "\n\n".join([d.page_content for d in docs])
+    source_chunks = [d.page_content[:150] + "..." for d in docs]
+    prompt = f"Answer based only on the context:\n\nContext:\n{context}\n\nQuestion: {question}\nAnswer:"
+    answer = llm_invoke(prompt)
+    return {"answer": answer, "source_chunks": source_chunks}
+
+@app.get("/summary")
+async def get_summary():
+    if not GLOBAL_STATE["all_chunks"]:
+        raise HTTPException(400, "No document has been indexed yet.")
+    full_text = "\n\n".join(GLOBAL_STATE["all_chunks"])
+    if len(full_text) < 10000:
+        prompt = f"""
+        Provide a comprehensive summary of the document as a numbered list.
+        Each point must be on its own line, starting with a number (1., 2., 3., ...).
+        Do not merge points into paragraphs. Use clear, concise language.
+
+        Document:
+        {full_text}
+
+        Summary (numbered list, one point per line):
+        """
+        summary = llm_invoke(prompt)
+        summary = re.sub(r'(\d+\.\s*)', r'\n\1', summary).strip()
+        return {"summary": summary}
+    segment_size = 2500
+    overlap = 300
+    segments = []
+    start = 0
+    while start < len(full_text):
+        end = min(start + segment_size, len(full_text))
+        segments.append(full_text[start:end])
+        start = end - overlap
+    segment_summaries = []
+    for i, seg in enumerate(segments):
+        prompt = f"""
+        Summarize this section (part {i+1}/{len(segments)}) as a numbered list.
+        Each point must be on a new line, starting with a number (1., 2., ...).
+        Keep points clear and standalone.
+
+        Section:
+        {seg}
+
+        Numbered list:
+        """
+        seg_summary = llm_invoke(prompt)
+        segment_summaries.append(seg_summary)
+    combined = "\n\n".join(segment_summaries)
+    final_prompt = f"""
+    Combine the following section summaries into one final numbered list.
+    Each point must be on its own line, starting with a number (1., 2., 3., ...).
+    Avoid duplicates; keep the logical order.
+
+    Section summaries:
+    {combined}
+
+    Final summary (numbered list, one point per line):
+    """
+    final_summary = llm_invoke(final_prompt)
+    final_summary = re.sub(r'(\d+\.\s*)', r'\n\1', final_summary).strip()
+    return {"summary": final_summary}
+
+@app.post("/reset")
+async def reset_state():
+    GLOBAL_STATE["retriever"] = None
+    GLOBAL_STATE["file_hash"] = None
+    GLOBAL_STATE["filename"] = None
+    GLOBAL_STATE["all_chunks"] = []
+    GLOBAL_STATE["prompt_cache"].clear()
+    return {"message": "State reset"}
+
+@app.get("/dashboard")
+async def dashboard_page():
+    try:
+        return FileResponse("templates/dashboard.html")
+    except Exception as e:
+        return HTMLResponse(f"<h1>Error loading dashboard</h1><p>{str(e)}</p>", status_code=500)
+
 # ─── Routes ────────────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -609,7 +560,6 @@ async def home():
             html_content = f.read()
     except FileNotFoundError:
         return HTMLResponse("<h1>Error: index.html not found</h1>")
-    
     current_file = GLOBAL_STATE.get("filename") or "No document indexed yet"
     html_content = html_content.replace("{{ current_file }}", current_file)
     return HTMLResponse(content=html_content)
