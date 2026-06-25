@@ -130,7 +130,6 @@ class ChatGemini:
 llm = ChatGemini(model="gemini-2.5-flash", temperature=0.0, max_output_tokens=2048)
 
 def process_document(file_path: str, ext: str):
-    """Load, clean, chunk, embed, and index a document."""
     logger.info(f"Processing {file_path} with extension {ext}")
     try:
         docs = []
@@ -155,7 +154,6 @@ def process_document(file_path: str, ext: str):
                         self.page_content = content
                         self.metadata = meta
                 docs.append(Doc(text, {"source": "CSV", "row_start": i+1}))
-            logger.info(f"Created {len(docs)} blocks from CSV.")
 
         # ─── PDF ────────────────────────────────────────────
         elif ext == ".pdf":
@@ -192,11 +190,60 @@ def process_document(file_path: str, ext: str):
                             self.metadata = meta
                     docs.append(Doc(text, {"sheet": sheet, "row_start": i+2, "source": "Excel"}))
             GLOBAL_STATE["raw_data"] = all_rows
-            logger.info(f"Created {len(docs)} blocks from Excel.")
+
+        # ─── Plain Text ──────────────────────────────────────
+        elif ext == ".txt":
+            with open(file_path, 'r', encoding='utf-8') as f:
+                text = f.read()
+            if not text.strip():
+                raise HTTPException(400, "Text file is empty.")
+            # Split into paragraphs or lines for chunking
+            class Doc:
+                def __init__(self, content, meta):
+                    self.page_content = content
+                    self.metadata = meta
+            # We'll keep it as one large document; the splitter will chunk it
+            docs.append(Doc(text, {"source": "TXT"}))
+
+        # ─── Word (.docx) ──────────────────────────────────
+        elif ext == ".docx":
+            try:
+                import docx
+                doc = docx.Document(file_path)
+                text = "\n".join([para.text for para in doc.paragraphs])
+            except ImportError:
+                # Fallback using docx2txt
+                import docx2txt
+                text = docx2txt.process(file_path)
+            if not text.strip():
+                raise HTTPException(400, "Word document is empty.")
+            class Doc:
+                def __init__(self, content, meta):
+                    self.page_content = content
+                    self.metadata = meta
+            docs.append(Doc(text, {"source": "DOCX"}))
+
+        # ─── Word (.doc) – legacy format ────────────────────
+        elif ext == ".doc":
+            # Use antiword or textract? For simplicity, we'll use docx2txt (may not work for .doc)
+            # A better approach: use textract or convert to docx. For now, try docx2txt.
+            try:
+                import docx2txt
+                text = docx2txt.process(file_path)
+            except Exception:
+                raise HTTPException(400, "Cannot read .doc file. Please convert to .docx or .txt.")
+            if not text.strip():
+                raise HTTPException(400, "Word document is empty.")
+            class Doc:
+                def __init__(self, content, meta):
+                    self.page_content = content
+                    self.metadata = meta
+            docs.append(Doc(text, {"source": "DOC"}))
 
         else:
             raise HTTPException(400, "Unsupported format")
 
+        # ─── Fallback if no docs ─────────────────────────────
         if not docs:
             raise HTTPException(400, "No content extracted")
 
@@ -215,7 +262,7 @@ def process_document(file_path: str, ext: str):
         chunks = deduplicate_chunks(chunks)
         logger.info(f"After dedup: {len(chunks)}")
 
-        # ─── Filter only empty ──────────────────────────────
+        # ─── Filter empty ──────────────────────────────────
         chunks = [c for c in chunks if c.page_content.strip() != ""]
         logger.info(f"After filtering empty: {len(chunks)}")
 
@@ -245,8 +292,8 @@ async def upload_file(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(400, "No file selected")
     ext = Path(file.filename).suffix.lower()
-    if ext not in (".csv", ".pdf", ".xlsx", ".xls"):
-        raise HTTPException(400, "Only CSV, PDF, or Excel allowed")
+    if ext not in (".csv", ".pdf", ".xlsx", ".xls", ".txt", ".docx", ".doc"):
+        raise HTTPException(400, "Only CSV, PDF, Excel, TXT, or Word files are allowed")
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         content = await file.read()
         tmp.write(content)

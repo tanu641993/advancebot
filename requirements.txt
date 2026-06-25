@@ -12,3 +12,6 @@ langchain-text-splitters
 google-genai>=0.2.0
 openpyxl>=3.1.0
 # ... other packages (no langchain-google-genai)
+python-docx>=0.8.11   # for .docx files
+docx2txt>=0.8         # fallback for .doc
+# (Already have pandas, openpyxl for Excel)
